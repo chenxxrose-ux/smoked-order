@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#F7F6F3">
+<meta name="theme-color" content="#F2F5F3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="剩貨">
@@ -31,7 +31,7 @@
   .ic{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
   /* 頂部 */
-  .top{position:sticky;top:0;z-index:5;background:rgba(247,246,243,.92);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  .top{position:sticky;top:0;z-index:5;background:rgba(242,245,243,.92);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
     padding:calc(10px + env(safe-area-inset-top)) var(--gut) 10px;border-bottom:1px solid var(--hair)}
   .top-in{max-width:600px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px}
   .top h1{margin:0;font-size:20px;font-weight:600;letter-spacing:.02em}
@@ -269,7 +269,9 @@
   .prep-row .tot small{display:block;font-size:12px;font-weight:400;color:var(--sub)}
   @media (prefers-reduced-motion:reduce){ *{transition:none!important;scroll-behavior:auto!important} }
 
-  /* 剩貨頁 */
+  /* 剩貨頁：深綠配色（和訂購頁的酒紅區分） */
+  :root{ --paper:#F2F5F3; --hair:#E2E8E4; --fill:#ECF0ED; --fill-press:#DDE5E0;
+    --soy:#2F5D50; --soy-press:#234840; --soy-tint:#E3EEE9; }
   .qbox{flex:none;display:flex;align-items:center;gap:2px}
   .qbox button{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--fill);color:var(--ink)}
   .qbox button .ic{stroke-width:2.2}
@@ -280,6 +282,12 @@
   .qbox.on input{color:var(--ink);font-weight:600}
   .unit{font-size:13px;color:var(--sub);min-width:18px}
   .seg.lvl{width:150px}
+  .sec-t{width:100%;display:flex;align-items:center;gap:8px;min-height:48px;margin:14px 0 6px;padding:0 4px;font-size:16px;font-weight:600;color:var(--ink);text-align:left}
+  .sec-t .sec-n{flex:1;font-size:13px;font-weight:400;color:var(--soy)}
+  .sec-t .chev{color:var(--sub);transition:transform .15s}
+  .sec-t.shut .chev{transform:rotate(-90deg)}
+  .sec-t:active{opacity:.6}
+  .card.folded{display:none}
   .wbox{flex:none;display:flex;align-items:center;gap:6px}
   .wbox input{width:84px;height:44px;border:none;border-radius:10px;background:var(--fill);font-size:17px;text-align:center;outline:none}
   .wbox input:focus{background:var(--soy-tint)}
@@ -413,7 +421,14 @@ function render(){
   let html = "", cat = "", grp = null;
   const close = () => { if (grp) { html += "</div>"; grp = null; } };
   ROWS.forEach((r, i) => {
-    if (r.cat !== cat) { close(); if (cat) html += "</section>"; cat = r.cat; html += `<h2 class="sec">${escapeHtml(r.cat)}</h2><section class="card">`; }
+    if (r.cat !== cat) {
+      close(); if (cat) html += "</section>"; cat = r.cat;
+      const shut = folded().includes(cat);
+      html += `<button type="button" class="sec-t${shut ? " shut" : ""}" data-cat="${escapeHtml(cat)}" aria-expanded="${!shut}">
+        <span>${escapeHtml(cat)}</span><span class="sec-n" data-n="${escapeHtml(cat)}"></span>
+        <svg class="ic chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+        <section class="card${shut ? " folded" : ""}" data-card="${escapeHtml(cat)}">`;
+    }
     if (r.multi) { if (grp !== r.grp) { close(); grp = r.grp; html += `<div class="grp"><div class="grp-name">${escapeHtml(r.grp)}</div>`; } }
     else close();
     const ctrl = r.kind === "lvl"
@@ -430,6 +445,17 @@ function render(){
   close(); html += "</section>";
   $("list").innerHTML = html;
 }
+
+/* ===== 收合（記在這支手機） ===== */
+function folded(){ try { return JSON.parse(localStorage.getItem("stockFold") || "[]"); } catch (e) { return []; } }
+$("list").addEventListener("click", e => {
+  const h = e.target.closest(".sec-t"); if (!h) return;
+  const cat = h.dataset.cat, f = new Set(folded()), shut = !f.has(cat);
+  shut ? f.add(cat) : f.delete(cat);
+  try { localStorage.setItem("stockFold", JSON.stringify([...f])); } catch (x) {}
+  h.classList.toggle("shut", shut); h.setAttribute("aria-expanded", !shut);
+  document.querySelector(`[data-card="${CSS.escape(cat)}"]`).classList.toggle("folded", shut);
+});
 
 /* ===== 資料（每天＋市場一筆） ===== */
 const LOCAL = "stockData";
@@ -450,9 +476,15 @@ function fill(){
   });
   if (document.activeElement !== $("note")) $("note").value = rec.note || "";
   $("cnt").textContent = Object.values(rec.v).filter(x => x > 0).length;
+  paintCounts(rec);
   const [y, m, d] = date.split("-").map(Number), isToday = date === ymd(new Date());
   $("dLabel").innerHTML = `${fmtDate(date)}<small>${isToday ? "今天" : ""}${rec.upd ? (isToday ? "・" : "") + "最後更新 " + new Date(rec.upd).toTimeString().slice(0, 5) : ""}</small>`;
   document.querySelectorAll("#mkSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === mk));
+}
+function paintCounts(rec){
+  const n = {};
+  ROWS.forEach(r => { if (rec.v[r.key] > 0) n[r.cat] = (n[r.cat] || new Set()).add(r.grp); });
+  document.querySelectorAll("[data-n]").forEach(el => { const c = n[el.dataset.n]; el.textContent = c ? `${c.size} 項有剩` : ""; });
 }
 let saveTimer = null;
 function setVal(i, v){
@@ -470,7 +502,7 @@ $("list").addEventListener("click", e => {
   const i = Number(b.dataset.i), v = (cur().v[ROWS[i].key] || 0) + Number(b.dataset.d);
   setVal(i, Math.max(0, v)); fill();
 });
-$("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i === undefined) return; setVal(Number(i), e.target.value); $("b" + i).classList.toggle("on", Number(e.target.value) > 0); $("cnt").textContent = Object.values(cur().v).filter(x => x > 0).length; });
+$("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i === undefined) return; setVal(Number(i), e.target.value); $("b" + i).classList.toggle("on", Number(e.target.value) > 0); $("cnt").textContent = Object.values(cur().v).filter(x => x > 0).length; paintCounts(cur()); });
 $("list").addEventListener("focusout", () => fill());
 $("note").addEventListener("input", () => {
   const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 };
