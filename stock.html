@@ -299,6 +299,15 @@
   .hist small{color:var(--sub);font-size:13px}
   .hist .ok{color:var(--soy);font-size:13px}
   .hist .todo{color:#B26A00;font-size:13px}
+  .ctx{max-width:600px;margin:6px auto 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--sub)}
+  .ctx b{color:var(--ink);font-weight:600}
+  .ctx-st{margin-left:auto;font-size:13px}
+  .ctx-st.ok{color:var(--soy)} .ctx-st.warn{color:#B26A00}
+  .ctx-need{color:#B26A00;font-weight:600}
+  .net-bar{margin:6px -16px -10px;padding:8px 16px;background:#FBF1DE;color:#8A5A00;font-size:14px;text-align:center}
+  .state{padding:10px 12px;border-radius:12px;font-size:15px;margin:0 0 12px;line-height:1.5}
+  .state.warn{background:#FBF1DE;color:#8A5A00}
+  @media (max-width:430px){ .sync-pill{font-size:0;gap:0;padding:0 12px} }
   .mk-warn{margin:10px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:15px;font-weight:500;text-align:center}
   #mkSeg.need{box-shadow:0 0 0 2px #E2A33B}
   .mk-tag{color:var(--soy);font-weight:600}
@@ -329,6 +338,8 @@
       <button type="button" class="hdr-btn" id="histBtn">紀錄</button>
       <a class="hdr-btn" href="./">訂購頁</a></div>
   </div>
+  <div class="ctx" id="ctx"></div>
+  <div class="net-bar" id="netBar" hidden>目前離線：可以繼續記，先存在這支手機，有網路後自動同步</div>
 </header>
 
 <main>
@@ -493,7 +504,7 @@ function askMarket(){
     $("dlgBox").querySelector("[data-no]").onclick = () => { closeDlg(); res(false); };
   });
 }
-function setMarket(m){ mk = m; fill(); Sync.run(); toast(`現在記的是：${MKT[m]}`); }
+function setMarket(m){ if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); mk = m; fill(); Sync.run(); toast(`現在記的是：${MKT[m]}`); }
 async function needMarket(e){
   if (mk) return true;
   if (e) { e.preventDefault(); e.stopImmediatePropagation(); if (e.target.blur) e.target.blur(); }
@@ -538,6 +549,7 @@ function fill(){
   document.querySelectorAll("#mkSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === mk));
   $("mkWarn").hidden = !!mk; $("mkSeg").classList.toggle("need", !mk);
   $("mkTag").textContent = mk ? MKT[mk] : "未選市場"; $("mkTag").classList.toggle("none", !mk);
+  paintCtx();
 }
 function paintCounts(rec){
   const n = {};
@@ -572,7 +584,7 @@ $("note").addEventListener("input", () => {
   rec.note = $("note").value.slice(0, 500); rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
   clearTimeout(saveTimer); saveTimer = setTimeout(() => Sync.run(), 800);
 });
-const shift = n => { const [y, m, d] = date.split("-").map(Number); date = ymd(new Date(y, m - 1, d + n)); fill(); Sync.run(); window.scrollTo({ top: 0 }); };
+const shift = n => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); const [y, m, d] = date.split("-").map(Number); date = ymd(new Date(y, m - 1, d + n)); fill(); Sync.run(); window.scrollTo({ top: 0 }); };
 $("dPrev").onclick = () => shift(-1);
 $("dNext").onclick = () => shift(1);
 $("mkSeg").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b || b.dataset.m === mk) return; setMarket(b.dataset.m); });
@@ -596,21 +608,37 @@ function copyText(text){
   if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(() => true, () => false);
   return Promise.resolve(false);
 }
+/* 頂部固定：正在記哪一天、哪個市場、存了沒 */
+function paintCtx(){
+  const st = !mk ? "" : !Sync.on() ? "已存在這支手機" : ({ busy: "同步中…", off: "已存手機・離線", err: "已存手機・同步失敗", ok: "已儲存・已同步" }[Sync.state] || "已儲存");
+  $("ctx").innerHTML = mk ? `正在記：<b>${fmtDate(date)}・${MKT[mk]}</b><span class="ctx-st ${Sync.state === "ok" || !Sync.on() ? "ok" : "warn"}">${st}</span>`
+    : `<span class="ctx-need">還沒選市場</span>`;
+}
+const paintNet = () => { $("netBar").hidden = navigator.onLine; };
+window.addEventListener("online", paintNet); window.addEventListener("offline", paintNet);
+let sharing = false;
 $("shareBtn").onclick = async () => {
+  if (sharing) return;
   if (!mk) { await askMarket(); return; }
-  const text = stockText(), data = { text };
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  const text = stockText(), data = { text }, btn = $("shareBtn");
   let can = window.isSecureContext && typeof navigator.share === "function";
   if (can && typeof navigator.canShare === "function") { try { can = navigator.canShare(data); } catch (e) { can = false; } }
-  if (!can) { if (await copyText(text)) afterShare("已複製剩貨清單，可以直接貼到 LINE"); else toast("無法分享，請截圖", true); return; }
-  try { await navigator.share(data); afterShare("已分享"); }
-  catch (e) { if (e.name !== "AbortError") { if (await copyText(text)) afterShare("分享沒有成功，已改成複製"); else toast("分享沒有成功", true); } }
+  if (!can) { if (await copyText(text)) afterShare("copy", "這支手機不支援分享，已複製剩貨清單，請到 LINE 貼上"); else toast("沒辦法分享或複製，請截圖保留", true); return; }
+  sharing = true; btn.disabled = true; btn.textContent = "開啟分享中…";
+  try { await navigator.share(data); afterShare("share", "已交給分享選單，請到 LINE 等 App 確認有送出"); }
+  catch (e) {
+    if (e.name === "AbortError") toast("已取消，沒有分享（紀錄還在）");
+    else if (await copyText(text)) afterShare("copy", "分享沒有成功，已改成複製，請到 LINE 貼上");
+    else toast("分享沒有成功，紀錄還在，請再試一次", true);
+  } finally { sharing = false; btn.disabled = false; btn.textContent = "分享剩貨"; }
 };
 /* 分享完：記下分享時間（存到後台），清空選擇，準備記下一筆 */
-function afterShare(msg){
+function afterShare(via, msg){
   const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 };
-  rec.shared = Date.now(); rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
+  rec.shared = Date.now(); rec.via = via; rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
   Sync.run();
-  toast(`${msg}，紀錄已存到後台`);
+  toast(`${msg}。紀錄已保存，可在「紀錄」查看`);
   mk = ""; date = ymd(new Date()); fill(); window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -627,14 +655,18 @@ modal.addEventListener("click", e => { if (e.target === modal) modal.classList.r
 async function showHistory(){
   sheet.innerHTML = `<h3>剩貨紀錄</h3><p class="note">讀取中…</p>`;
   modal.classList.add("show");
-  if (Sync.on() && navigator.onLine) { try { await Sync.pullAll(); } catch (e) {} }
+  let warn = "";
+  if (Sync.on()) {
+    if (!navigator.onLine) warn = "目前離線，下面只有這支手機上的紀錄";
+    else { try { await Sync.pullAll(); } catch (e) { warn = "讀取雲端紀錄失敗，下面只有這支手機上的紀錄，請稍後再開一次"; } }
+  }
   const list = Object.entries(all()).map(([id, r]) => { const m = id.match(/^inv_(\d{4}-\d{2}-\d{2})_(ba|ma)$/); return m ? { id, d: m[1], m: m[2], r } : null; })
     .filter(x => x && (Object.keys(x.r.v || {}).length || x.r.note)).sort((a, b) => b.d.localeCompare(a.d) || a.m.localeCompare(b.m));
   const cnt = (r, bring) => ROWS.filter(x => !!x.bring === bring && (r.v || {})[x.key] > 0).length;
-  sheet.innerHTML = `<h3>剩貨紀錄</h3><p class="note">${Sync.on() ? "所有手機同步的紀錄" : "這支手機上的紀錄"}，點一下打開。</p>` +
+  sheet.innerHTML = `<h3>剩貨紀錄</h3>${warn ? `<div class="state warn">${warn}</div>` : ""}<p class="note">${Sync.on() ? "所有手機同步的紀錄" : "這支手機上的紀錄"}，點一下打開。</p>` +
     (list.length ? `<div class="rows">${list.map(x => `<div class="row hist-row"><button type="button" class="hist" data-d="${x.d}" data-m="${x.m}">
         <span><b>${fmtDate(x.d)}</b>　${MKT[x.m]}<br><small>剩 ${cnt(x.r, false)} 項${cnt(x.r, true) ? `・要帶 ${cnt(x.r, true)} 項` : ""}</small></span>
-        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? "已分享 " + new Date(x.r.shared).toTimeString().slice(0, 5) : "未分享"}</span></button>
+        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? (x.r.via === "copy" ? "已複製 " : "已分享 ") + new Date(x.r.shared).toTimeString().slice(0, 5) : "未分享"}</span></button>
         <button type="button" class="link-btn danger" data-del="${x.id}" aria-label="刪除 ${fmtDate(x.d)} ${MKT[x.m]}">刪除</button></div>`).join("")}</div>`
       : `<p class="note">還沒有紀錄。</p>`) +
     `<div class="actions"><button type="button" class="btn ghost" id="histClose">關閉</button></div>`;
@@ -709,7 +741,7 @@ const Sync = {
   },
   async push(id, rec){
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.aes(), te.encode(JSON.stringify({ v: rec.v, note: rec.note || "", upd: rec.upd, shared: rec.shared || 0 })));
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.aes(), te.encode(JSON.stringify({ v: rec.v, note: rec.note || "", upd: rec.upd, shared: rec.shared || 0, via: rec.via || "" })));
     await this.api("PATCH", `/rooms/${this.cfg().room}/orders/${id}`, { fields: { iv: { stringValue: b64(iv) }, ct: { stringValue: b64(ct) }, upd: { integerValue: String(rec.upd) } } });
   },
   /* 讀回所有日期的剩貨紀錄（給「紀錄」頁用） */
@@ -726,7 +758,7 @@ const Sync = {
         try {
           const f = d.fields, r = JSON.parse(td.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv.stringValue) }, await this.aes(), unb64(f.ct.stringValue))));
           b[id] = { v: Object.fromEntries(Object.entries(r.v || {}).map(([k, v]) => [String(k).slice(0, 40), clean(v, "w")]).filter(([, v]) => v > 0)),
-            note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0 };
+            note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0, via: r.via === "copy" ? "copy" : r.via ? "share" : "" };
           changed = true;
         } catch (e) {}
       }
@@ -759,7 +791,7 @@ const Sync = {
       const b = all(), loc = b[id];
       if (remote && !(this.cfg().dels || []).includes(id) && (!loc || (!loc.p && remote.upd > (loc.upd || 0)))) {
         b[id] = { v: Object.fromEntries(Object.entries(remote.v || {}).map(([k, v]) => [String(k).slice(0, 40), clean(v, "w")]).filter(([, v]) => v > 0)),
-          note: String(remote.note || "").slice(0, 500), upd: Number(remote.upd) || 0, shared: Number(remote.shared) || 0 };
+          note: String(remote.note || "").slice(0, 500), upd: Number(remote.upd) || 0, shared: Number(remote.shared) || 0, via: remote.via === "copy" ? "copy" : remote.via ? "share" : "" };
         saveAll(b); fill();
       }
       this.state = "ok"; this.last = Date.now();
@@ -767,11 +799,13 @@ const Sync = {
     finally { this.busy = false; this.paint(); if (this.again) { this.again = false; setTimeout(() => this.run(), 300); } }
   },
   paint(){
+    if (typeof paintCtx === "function") paintCtx();
     const p = $("syncPill");
-    if (!this.on()) { p.hidden = true; $("saveState").textContent = "只存在這支手機"; return; }
+    if (!this.on()) { p.hidden = true; $("saveState").textContent = mk ? "只存在這支手機" : "選好市場就會自動儲存"; return; }
     p.hidden = false; p.className = "sync-pill " + (this.state || "");
     p.textContent = { busy: "同步中", off: "離線", err: "未同步", ok: "已同步" }[this.state] || "同步";
     $("saveState").textContent = { off: "已儲存・離線", err: "已儲存・稍後同步", busy: "已儲存・同步中", ok: "已儲存・已同步" }[this.state] || "已自動儲存";
+    if (!mk) $("saveState").textContent = "選好市場就會自動儲存";
   },
 };
 $("syncPill").onclick = () => Sync.run();
@@ -806,7 +840,7 @@ function askStorePw(){
 (function(){
   const d = new Date();
   $("todayLine").textContent = `今天 ${d.getMonth() + 1}/${d.getDate()}（星期${WK[d.getDay()]}）`;
-  render(); fill(); Sync.paint();
+  render(); fill(); Sync.paint(); paintNet();
   if (!Sync.on() && !Sync.cfg().skip && window.isSecureContext && window.crypto && crypto.subtle) askStorePw();
   Sync.run();
 })();
