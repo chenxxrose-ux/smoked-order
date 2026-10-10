@@ -389,6 +389,7 @@ const MENU = [
     { name: "鴨心",   opts: [{ label: "一個", price: 0 }] },
     { name: "鴨舌",   opts: [{ label: "一個", price: 0 }] },
     { name: "鴨胗",   opts: [{ label: "一個", price: 0 }] },
+    { name: "雞腳",   type: "money" },                  // 客人說要買多少錢（不用秤重）
   ]},
   { cat: "滷味", items: [
     { name: "米血",     opts: [{ label: "一片", price: 0 }] },
@@ -415,6 +416,18 @@ let savedPrices = {};
 try { savedPrices = JSON.parse(localStorage.getItem("prices") || "{}"); } catch (e) {}
 function savePrices(){ try { localStorage.setItem("prices", JSON.stringify(prices)); } catch (e) {} }
 
+/* 排列：同一個字開頭的放在一起；不同開頭的群組依字數由短到長，同群組內也依字數 */
+function sortNames(arr, name){
+  const g = {};
+  arr.forEach((x, i) => { const n = name(x), f = n[0]; if (!g[f]) g[f] = { min: n.length, first: i }; else g[f].min = Math.min(g[f].min, n.length); });
+  return arr.map((x, i) => [x, i]).sort((a, b) => {
+    const na = name(a[0]), nb = name(b[0]), ga = g[na[0]], gb = g[nb[0]];
+    return ga.min - gb.min || ga.first - gb.first || na.length - nb.length || a[1] - b[1];
+  });
+}
+/* 顯示順序（資料仍用原本的位置，記住的單價不受影響） */
+function byLen(items){ return sortNames(items, it => it.name); }
+
 function render(){
   const menu = document.getElementById("menu");
   const stepper = key => `<div class="stepper" id="s-${key}">
@@ -431,8 +444,13 @@ function render(){
     const card = document.createElement("section");
     card.className = "card";
     let html = "";
-    sec.items.forEach((it, ii) => {
-      if (it.type === "amount") {
+    byLen(sec.items).forEach(([it, ii]) => {
+      if (it.type === "money") {
+        const key = `${si}-${ii}-amt`;
+        html += `<div class="it"><div class="it-main"><div class="it-name">${it.name}</div>
+          <div class="it-sub">要買 ${priceIn("data-amt", key, "", "金額")}</div></div>
+          <button type="button" class="want" data-want="${key}" aria-label="${it.name}要不要"></button></div>`;
+      } else if (it.type === "amount") {
         const key = `${si}-${ii}-amt`;
         html += `<div class="it"><div class="it-main"><div class="it-name">${it.name}</div>
           <div class="it-sub">約 ${priceIn("data-amt", key, "", "金額")}<span class="wtag">秤重</span></div></div>
@@ -488,8 +506,12 @@ function render(){
 
 function getLines(){
   const lines = [];
-  MENU.forEach((sec, si) => sec.items.forEach((it, ii) => {
-    if (it.type === "amount") {
+  MENU.forEach((sec, si) => byLen(sec.items).forEach(([it, ii]) => {
+    if (it.type === "money") {
+      const k = `${si}-${ii}-amt`, a = amounts[k] || 0;
+      if (want[k] || a > 0) lines.push({ cat: sec.cat, nm: it.name, kind: "amount", q: 1, weigh: false, est: null,
+        short: it.name, item: `${it.name} $${a}`, text: `【${sec.cat}】${it.name}`, sub: a > 0 ? a : null });
+    } else if (it.type === "amount") {
       const k = `${si}-${ii}-amt`, a = amounts[k] || 0;
       if (want[k] || a > 0) lines.push({ cat: sec.cat, nm: it.name, kind: "amount", q: 1, weigh: true, est: a || null,
         short: `${it.name}${a ? " 約$" + a : ""}`, item: `${it.name}${a ? " 約$" + a : ""}`,

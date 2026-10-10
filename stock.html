@@ -401,7 +401,17 @@ const COUNT_PARTS = { "豬頭皮": ["塊", "條", "件"] };   // 分開記幾塊
 
 /* 要記的格子：key 用「品名|規格」，以後調整菜單也不會亂掉 */
 const ROWS = [];
-MENU.forEach(sec => sec.items.forEach(it => {
+/* 排列：同一個字開頭的放在一起；不同開頭的群組依字數由短到長，同群組內也依字數 */
+function sortNames(arr, name){
+  const g = {};
+  arr.forEach((x, i) => { const n = name(x), f = n[0]; if (!g[f]) g[f] = { min: n.length, first: i }; else g[f].min = Math.min(g[f].min, n.length); });
+  return arr.map((x, i) => [x, i]).sort((a, b) => {
+    const na = name(a[0]), nb = name(b[0]), ga = g[na[0]], gb = g[nb[0]];
+    return ga.min - gb.min || ga.first - gb.first || na.length - nb.length || a[1] - b[1];
+  });
+}
+const byLen = arr => sortNames(arr, x => x.name).map(x => x[0]);
+MENU.forEach(sec => byLen(sec.items).forEach(it => {
   if (LEVEL_ITEMS[it.name]) ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|量`, name: it.name, kind: "lvl", unit: "", levels: LEVEL_ITEMS[it.name] });
   else if (COUNT_PARTS[it.name]) COUNT_PARTS[it.name].forEach(u => ROWS.push({ cat: sec.cat, grp: it.name, multi: true, cnt: true, key: `${it.name}|${u}`, name: it.name, spec: u, kind: "n", unit: u }));
   else if (it.type === "amount") ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|`, name: it.name, kind: "w", unit: WEIGH_UNIT });
@@ -412,7 +422,7 @@ MENU.forEach(sec => sec.items.forEach(it => {
       kind: "n", unit: it.opts.length > 1 ? "" : (m ? m[1] : "") });
   });
 }));
-SUPPLIES.forEach(([n, u]) => ROWS.push({ cat: "備品", grp: n, key: `備品|${n}`, name: n, kind: "n", unit: u }));
+byLen(SUPPLIES.map(([n, u]) => ({ name: n, u }))).map(x => [x.name, x.u]).forEach(([n, u]) => ROWS.push({ cat: "備品", grp: n, key: `備品|${n}`, name: n, kind: "n", unit: u }));
 
 const $ = id => document.getElementById(id);
 function escapeHtml(s){ return String(s ?? "").replace(/[&<>"'`]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[c])); }
