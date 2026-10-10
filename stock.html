@@ -621,9 +621,11 @@ $("dPrev").onclick = () => shift(-1);
 $("dNext").onclick = () => shift(1);
 $("mkSeg").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b || b.dataset.m === mk) return; setMarket(b.dataset.m); });
 
-/* 分享（只列有剩的） */
+/* 分享（只列有剩的）：分類前面加圖示，在 LINE 群組比較好認 */
+const SHARE_HEAD = { "煙燻": "🍗 煙燻", "滷味": "🍢 滷味", "備品": "🧂 要帶" };
 function stockText(){
-  const rec = cur(); let t = `【剩貨】${fmtDate(date)}・${MKT[mk]}\n`, cat = "";
+  const rec = cur(), d = fmtDate(date).replace("(", "（").replace(")", "）");
+  let t = `📦 剩貨 ${d}${MKT[mk]}\n`, cat = "";
   const groups = [];
   ROWS.forEach(r => {
     const v = rec.v[r.key]; if (!v) return;
@@ -632,8 +634,8 @@ function stockText(){
     g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? `${r.spec} ${v}` : `${v}${r.unit ? " " + r.unit : ""}`);
   });
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
-  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n〔${catLabel(cat)}〕\n`; } t += `${g.grp}　${g.parts.join("、")}\n`; });
-  if (rec.note) t += `\n備註：${rec.note}`;
+  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n${SHARE_HEAD[cat] || catLabel(cat)}\n`; } t += `${g.grp}　${g.parts.join("、")}\n`; });
+  if (rec.note) t += `\n📝 ${rec.note}`;
   return t.trim();
 }
 /* 頂部固定：正在記哪一天、哪個市場、存了沒 */
