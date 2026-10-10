@@ -228,6 +228,23 @@
   .list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
   .list-head h3{margin:0}
   .privacy{font-size:12px;color:var(--sub);margin:0 0 12px}
+  .prep-open{width:100%;margin-bottom:12px}
+  .day-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--card);border-radius:var(--r);padding:4px;margin-bottom:10px}
+  .day-nav button{width:44px;height:44px;border-radius:12px;font-size:22px}
+  .day-nav button:active{background:var(--fill-press)}
+  .day-nav b{font-size:17px;font-weight:600;text-align:center}
+  .day-nav b small{display:block;font-size:12px;font-weight:400;color:var(--sub)}
+  .prep-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+  .prep-stats div{background:var(--card);border-radius:12px;padding:10px 8px;text-align:center}
+  .prep-stats b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+  .prep-stats span{font-size:12px;color:var(--sub)}
+  .prep-cat{font-size:13px;color:var(--sub);margin:14px 4px 6px}
+  .prep-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:11px 0;border-top:1px solid var(--hair)}
+  .rows .prep-row:first-child{border-top:none}
+  .prep-row .nm{font-size:16px;font-weight:500}
+  .prep-row .det{font-size:13px;color:var(--sub);margin-top:2px}
+  .prep-row .tot{flex:none;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+  .prep-row .tot small{display:block;font-size:12px;font-weight:400;color:var(--sub)}
   @media (prefers-reduced-motion:reduce){ *{transition:none!important;scroll-behavior:auto!important} }
 </style>
 </head>
@@ -320,6 +337,7 @@ const ICON = (() => {
     copy:  svg('<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/>'),
     scale: svg('<path d="M12 4v16M7 20h10M5 8h14M5 8l-3 6a3 3 0 0 0 6 0zM19 8l-3 6a3 3 0 0 0 6 0z"/>'),
     check: svg('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>'),
+    list:  svg('<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>'),
   };
 })();
 
@@ -447,18 +465,18 @@ function getLines(){
   MENU.forEach((sec, si) => sec.items.forEach((it, ii) => {
     if (it.type === "amount") {
       const k = `${si}-${ii}-amt`, a = amounts[k] || 0;
-      if (want[k] || a > 0) lines.push({ cat: sec.cat, weigh: true, est: a || null,
+      if (want[k] || a > 0) lines.push({ cat: sec.cat, nm: it.name, kind: "amount", q: 1, weigh: true, est: a || null,
         short: `${it.name}${a ? " 約$" + a : ""}`, item: `${it.name}${a ? " 約$" + a : ""}`,
         text: `【${sec.cat}】${it.name}${a ? " 約$" + a : ""}`, sub: null });
     } else if (it.type === "piece") {
       const k = `${si}-${ii}-pc`, q = qty[k], p = pcPrice[k] || 0;
-      if (q > 0) lines.push({ cat: sec.cat, weigh: true, est: p ? p * q : null, short: `${it.name}×${q}塊`, item: `${it.name} × ${q} 塊`,
+      if (q > 0) lines.push({ cat: sec.cat, nm: it.name, kind: "piece", q, weigh: true, est: p ? p * q : null, short: `${it.name}×${q}塊`, item: `${it.name} × ${q} 塊`,
         text: `【${sec.cat}】${it.name} × ${q} 塊${p ? "　一塊約$" + p : ""}`, sub: null });
     } else {
       it.opts.forEach((o, oi) => {
         const k = `${si}-${ii}-${oi}`, q = qty[k], p = prices[k];
         const lab = it.opts.length > 1 ? o.label.replace(/\s*一份/, "") : "";
-        if (q > 0) lines.push({ cat: sec.cat, short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${p ? "　單價$" + p : ""}`,
+        if (q > 0) lines.push({ cat: sec.cat, nm: it.name, sp: o.label, kind: "qty", q, short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${p ? "　單價$" + p : ""}`,
           text: `【${sec.cat}】${it.name}（${o.label}）× ${q}${p ? "　@$" + p : ""}`, sub: p ? p * q : null });
       });
     }
@@ -822,7 +840,7 @@ document.getElementById("submitBtn").onclick = () => {
     const btn = e.currentTarget;
     const order = { id: Date.now(), odate: ymd(new Date()), market, ...who, memo,
       prep: { ...prep }, pay, deposit: pay === "deposit" ? (Number(depInput.value) || 0) : 0,
-      items: lines.map(l => ({ cat: l.cat, short: l.short, item: l.item, sub: l.sub, weigh: !!l.weigh, est: l.est || null })), total };
+      items: lines.map(l => ({ cat: l.cat, nm: l.nm, sp: l.sp || "", kind: l.kind, q: l.q, short: l.short, item: l.item, sub: l.sub, weigh: !!l.weigh, est: l.est || null })), total };
     let saved = false;
     if (!Vault.supported()) {
       toast("這個網址無法加密保存（需要 https），這筆訂單不會存檔，請先分享或複製。", true);
@@ -870,6 +888,7 @@ function showOrders(){
   const all = Vault.orders;
   sheet.dataset.view = "orders";
   sheet.innerHTML = `<div class="list-head"><h3>訂單列表</h3><button type="button" class="link-btn" id="lockNow">鎖定</button></div>
+    ${all.length ? `<button type="button" class="btn ghost prep-open" id="openPrep">${ICON.list}當天備料統計</button>` : ""}
     <p class="privacy">訂單加密存在這支手機，不會上傳。電話預設遮蔽。</p>` +
     (all.length ? all.map((o, i) => `<div class="order${hasPending(o.items) ? " pending" : ""}">
       ${hasPending(o.items) ? `<div class="pend-tag">${ICON.scale}有秤重品項還沒補金額</div>` : ""}
@@ -892,6 +911,7 @@ function showOrders(){
   sheet.querySelectorAll("[data-pv]").forEach(pre => pre.textContent = buildText(all[pre.dataset.pv]));
   const close = () => modal.classList.remove("show");
   document.getElementById("closeList").onclick = close;
+  const op = document.getElementById("openPrep"); if (op) op.onclick = () => showPrep();
   document.getElementById("lockNow").onclick = () => { Vault.lock(); close(); toast("訂單已鎖定"); };
   sheet.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(buildText(all[b.dataset.copy]), b));
   sheet.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareText(buildText(all[b.dataset.share]), b));
@@ -953,6 +973,119 @@ function editWeigh(o){
     bindShare(sheet, o);   // 用更新後的最新金額
     document.getElementById("wList").onclick = showOrders;
   };
+}
+
+/* ===== 當天備料統計 ===== */
+/* 舊訂單沒有結構化欄位，就從品項文字還原 */
+const MENU_NAMES = MENU.flatMap(s => s.items.map(it => ({ name: it.name, cat: s.cat, it }))).sort((a, b) => b.name.length - a.name.length);
+function parseLine(l){
+  if (l.nm && l.kind) return { cat: l.cat, nm: l.nm, sp: l.sp || "", kind: l.kind, q: Number(l.q) || 1, est: l.est, sub: l.sub };
+  const txt = String(l.short || l.item || "");
+  const hit = MENU_NAMES.find(m => m.cat === l.cat && txt.startsWith(m.name)) || MENU_NAMES.find(m => txt.startsWith(m.name));
+  if (!hit) return null;
+  const rest = txt.slice(hit.name.length);
+  if (hit.it.type === "amount") return { cat: hit.cat, nm: hit.name, sp: "", kind: "amount", q: 1, est: l.est, sub: l.sub };
+  const m = rest.match(/^(.*?)×(\d+)/);
+  const q = m ? Number(m[2]) : 1;
+  if (hit.it.type === "piece") return { cat: hit.cat, nm: hit.name, sp: "", kind: "piece", q, est: l.est, sub: l.sub };
+  let sp = m ? m[1].trim() : "";
+  if (!sp && hit.it.opts && hit.it.opts.length === 1) sp = hit.it.opts[0].label;
+  const opt = hit.it.opts && hit.it.opts.find(o => o.label.replace(/\s*一份/, "") === sp || o.label === sp);
+  return { cat: hit.cat, nm: hit.name, sp: opt ? opt.label : sp, kind: "qty", q, est: l.est, sub: l.sub };
+}
+/* 「半」的份量算 0.5，用來估計要準備幾隻／幾顆 */
+const WHOLE_UNIT = { "一隻": "隻", "一顆": "顆" };
+function prepSummary(orders){
+  const map = new Map();
+  for (const o of orders) for (const l of o.items || []) {
+    const p = parseLine(l); if (!p) continue;
+    const key = p.cat + "|" + p.nm;
+    if (!map.has(key)) map.set(key, { cat: p.cat, nm: p.nm, kind: p.kind, specs: new Map(), q: 0, amt: 0, noAmt: 0, n: 0 });
+    const g = map.get(key);
+    g.n++;
+    if (p.kind === "amount") { const v = p.sub ?? p.est; if (v) g.amt += Number(v); else g.noAmt++; }
+    else if (p.kind === "piece") g.q += p.q;
+    else g.specs.set(p.sp, (g.specs.get(p.sp) || 0) + p.q);
+  }
+  // 依菜單順序排列
+  const order = MENU_NAMES.slice().sort((a, b) => MENU.findIndex(s => s.cat === a.cat) - MENU.findIndex(s => s.cat === b.cat)
+    || MENU.find(s => s.cat === a.cat).items.indexOf(a.it) - MENU.find(s => s.cat === b.cat).items.indexOf(b.it));
+  return order.map(m => map.get(m.cat + "|" + m.name)).filter(Boolean).map(g => {
+    if (g.kind === "qty") {
+      const opts = (MENU.find(s => s.cat === g.cat).items.find(it => it.name === g.nm) || {}).opts || [];
+      const specs = [...g.specs].sort((a, b) => opts.findIndex(o => o.label === a[0]) - opts.findIndex(o => o.label === b[0]));
+      const wholeLabel = opts.map(o => o.label).find(x => WHOLE_UNIT[x]);
+      let main, sub = "";
+      if (wholeLabel) {
+        const eq = specs.reduce((s, [sp, q]) => s + q * (sp === wholeLabel ? 1 : sp.includes("半") ? 0.5 : 0), 0);
+        main = `約 ${eq % 1 ? eq.toFixed(1) : eq} ${WHOLE_UNIT[wholeLabel]}`;
+        sub = specs.map(([sp, q]) => `${sp} ${q}`).join("、");
+      } else {
+        const tot = specs.reduce((s, [, q]) => s + q, 0);
+        const mm = specs.length === 1 ? specs[0][0].match(/^一(.)(?:（(.+)）)?/) : null;
+        main = `${tot}${mm ? " " + mm[1] : ""}`;
+        sub = specs.length > 1 ? specs.map(([sp, q]) => `${sp} ${q}`).join("、") : (mm && mm[2] ? `${mm[2]}一份` : "");
+      }
+      return { ...g, main, sub };
+    }
+    if (g.kind === "piece") return { ...g, main: `${g.q} 塊`, sub: `${g.n} 筆訂單・秤重` };
+    return { ...g, main: g.amt ? `約 $${g.amt}` : `${g.n} 份`, sub: `${g.n} 份` + (g.noAmt ? `（${g.noAmt} 份沒寫金額）` : "") + "・秤重" };
+  });
+}
+function prepListText(date, mk, rows, orders){
+  let t = `【備料】${fmtDate(date)}${mk ? "・" + mk : ""}\n共 ${orders.length} 筆訂單\n`;
+  let cat = "";
+  for (const r of rows) {
+    if (r.cat !== cat) { cat = r.cat; t += `\n〔${cat}〕\n`; }
+    t += `${r.nm}　${r.main}${r.sub ? `（${r.sub}）` : ""}\n`;
+  }
+  return t.trim();
+}
+let prepDate = null, prepMk = "";
+function showPrep(){
+  if (!Vault.orders) { openOrders(); return; }
+  armIdle();
+  const all = Vault.orders;
+  if (!prepDate) {
+    // 預設：今天；今天沒單就跳到最近有單的日子
+    const today = ymd(new Date()), dates = [...new Set(all.map(o => o.date).filter(Boolean))].sort();
+    prepDate = dates.includes(today) ? today : (dates.find(d => d >= today) || dates[dates.length - 1] || today);
+  }
+  const dayOrders = all.filter(o => o.date === prepDate && (!prepMk || o.market === prepMk));
+  const rows = prepSummary(dayOrders);
+  const known = dayOrders.reduce((s, o) => s + calcTotal(o.items), 0);
+  const pend = dayOrders.filter(o => hasPending(o.items)).length;
+  const [y, m, d] = prepDate.split("-").map(Number), info = dayInfo(new Date(y, m - 1, d));
+  let cat = "";
+  sheet.dataset.view = "orders";
+  sheet.innerHTML = `<h3>當天備料統計</h3>
+    <div class="day-nav"><button type="button" id="dPrev" aria-label="前一天">‹</button>
+      <b>${fmtDate(prepDate)}<small>${escapeHtml(info.hol || info.wor || (info.lun ? "農曆" + info.lun : ""))}</small></b>
+      <button type="button" id="dNext" aria-label="後一天">›</button></div>
+    <div class="seg" id="prepMk" style="margin-bottom:12px">
+      ${["", "爸爸市場", "媽媽市場", "早市"].map(x => `<button type="button" data-pm="${x}" class="${x === prepMk ? "on" : ""}">${x || "全部"}</button>`).join("")}</div>
+    <div class="prep-stats"><div><b>${dayOrders.length}</b><span>筆訂單</span></div>
+      <div><b>$${known}</b><span>已知金額</span></div><div><b>${pend}</b><span>待秤重</span></div></div>
+    ${rows.length ? `<div class="rows">` + rows.map(r => {
+        const head = r.cat !== cat ? (cat = r.cat, `</div><p class="prep-cat">${escapeHtml(r.cat)}</p><div class="rows">`) : "";
+        return head + `<div class="prep-row"><div><div class="nm">${escapeHtml(r.nm)}</div>${r.sub ? `<div class="det">${escapeHtml(r.sub)}</div>` : ""}</div>
+          <div class="tot">${escapeHtml(r.main)}</div></div>`;
+      }).join("") + `</div>` : `<p class="note">這天${prepMk ? "在" + escapeHtml(prepMk) : ""}沒有訂單。</p>`}
+    ${rows.length ? `<div class="share-actions" style="margin-top:12px">
+      <button type="button" class="btn share" id="prepShare">${ICON.share}分享備料清單</button>
+      <button type="button" class="btn ghost" id="prepCopy">${ICON.copy}複製備料清單</button></div>
+      <p class="note" style="margin-top:8px">備料清單只有品項和數量，不含客人姓名電話。</p>` : ""}
+    <div class="actions"><button type="button" class="btn ghost" id="prepBack">回訂單列表</button></div>`;
+  sheet.innerHTML = sheet.innerHTML.replace('<div class="rows"></div>', "");
+  sheet.scrollTop = 0;
+  const shift = n => { const dt = new Date(y, m - 1, d + n); prepDate = ymd(dt); showPrep(); };
+  document.getElementById("dPrev").onclick = () => shift(-1);
+  document.getElementById("dNext").onclick = () => shift(1);
+  sheet.querySelectorAll("[data-pm]").forEach(b => b.onclick = () => { prepMk = b.dataset.pm; showPrep(); });
+  document.getElementById("prepBack").onclick = showOrders;
+  const txt = () => prepListText(prepDate, prepMk, rows, dayOrders);
+  const sh = document.getElementById("prepShare"); if (sh) sh.onclick = e => shareText(txt(), e.currentTarget);
+  const cp = document.getElementById("prepCopy"); if (cp) cp.onclick = e => copyText(txt(), e.currentTarget);
 }
 
 document.getElementById("viewOrders").onclick = e => { e.preventDefault(); openOrders(); };
