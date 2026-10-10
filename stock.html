@@ -352,7 +352,7 @@
   <div id="list"></div>
   <h2 class="sec">備註</h2>
   <section class="card"><textarea class="note-in" id="note" rows="2" placeholder="其他要交代的"></textarea></section>
-  <div class="actions"><button type="button" class="btn ghost" id="clearDay">清除重新填寫</button></div>
+  <div class="actions"><button type="button" class="btn ghost" id="clearDay">重新填寫</button></div>
 </main>
 
 <div class="bar"><div class="bar-in">
@@ -551,7 +551,7 @@ function fill(){
   $("mkWarn").hidden = !!mk; $("mkSeg").classList.toggle("need", !mk);
   $("mkTag").textContent = mk ? MKT[mk] : "未選市場"; $("mkTag").classList.toggle("none", !mk);
   paintCtx();
-  $("clearDay").textContent = mk ? `清除「${MKT[mk]}」重新填寫` : "清除重新填寫";
+  $("clearDay").textContent = "重新填寫";
 }
 function paintCounts(rec){
   const n = {};
