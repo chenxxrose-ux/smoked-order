@@ -277,8 +277,12 @@
   .qbox button .ic{stroke-width:2.2}
   .qbox button:active{transform:scale(.9);background:var(--fill-press)}
   .qbox button[data-d="1"]{background:var(--soy-tint);color:var(--soy)}
-  .qbox input{width:48px;height:40px;border:none;background:transparent;text-align:center;font-size:17px;font-variant-numeric:tabular-nums;color:#C4BEB7;outline:none;padding:0}
-  .qbox input:focus{background:var(--soy-tint);border-radius:8px;color:var(--ink)}
+  .qbox{gap:6px}
+  .qbox input{width:72px;height:44px;border:none;border-radius:10px;background:var(--fill);text-align:center;font-size:18px;font-variant-numeric:tabular-nums;color:var(--ink);outline:none;padding:0}
+  .qbox input::placeholder{color:#B9B3AC}
+  .qbox input:focus{background:var(--soy-tint);box-shadow:0 0 0 2px var(--soy)}
+  .qbox .unit{min-width:20px}
+  .seg.lvl.l3{width:180px}
   .qbox.on input{color:var(--ink);font-weight:600}
   .unit{font-size:13px;color:var(--sub);min-width:18px}
   .seg.lvl{width:150px}
@@ -308,7 +312,7 @@
   <div class="top-in">
     <div><h1>剩貨紀錄</h1><p class="today" id="todayLine"></p></div>
     <div class="hdr-right"><button type="button" class="sync-pill" id="syncPill" hidden></button>
-      <a class="link" href="./">回訂購頁</a></div>
+      <a class="hdr-btn" href="./">訂購頁</a></div>
   </div>
 </header>
 
@@ -389,14 +393,15 @@ const SUPPLIES = [
 ];
 const MKT = { ba: "爸爸市場", ma: "媽媽市場" };
 const WEIGH_UNIT = "斤";
-const LEVEL_ITEMS = ["鴨腸", "口香糖", "大腸"];        // 記「一點點／很多」
-const LEVELS = { 1: "一點點", 2: "很多" };
+/* 用選的品項：[數值, 文字]，再按一次取消 */
+const LV_SMALL = [[1, "一點點"], [2, "很多"]];
+const LEVEL_ITEMS = { "鴨腸": LV_SMALL, "口香糖": LV_SMALL, "大腸": LV_SMALL, "鴨翅": [[3, "一包"], [2, "半包"], [1, "一點"]] };
 const COUNT_PARTS = { "豬頭皮": ["塊", "條", "件"] };   // 分開記幾塊、幾條、幾件
 
 /* 要記的格子：key 用「品名|規格」，以後調整菜單也不會亂掉 */
 const ROWS = [];
 MENU.forEach(sec => sec.items.forEach(it => {
-  if (LEVEL_ITEMS.includes(it.name)) ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|量`, name: it.name, kind: "lvl", unit: "" });
+  if (LEVEL_ITEMS[it.name]) ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|量`, name: it.name, kind: "lvl", unit: "", levels: LEVEL_ITEMS[it.name] });
   else if (COUNT_PARTS[it.name]) COUNT_PARTS[it.name].forEach(u => ROWS.push({ cat: sec.cat, grp: it.name, multi: true, cnt: true, key: `${it.name}|${u}`, name: it.name, spec: u, kind: "n", unit: u }));
   else if (it.type === "amount") ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|`, name: it.name, kind: "w", unit: WEIGH_UNIT });
   else if (it.type === "piece") ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|塊`, name: it.name, kind: "n", unit: "塊" });
@@ -432,12 +437,11 @@ function render(){
     if (r.multi) { if (grp !== r.grp) { close(); grp = r.grp; html += `<div class="grp"><div class="grp-name">${escapeHtml(r.grp)}</div>`; } }
     else close();
     const ctrl = r.kind === "lvl"
-      ? `<div class="seg small lvl" id="b${i}">${Object.entries(LEVELS).map(([v, t]) => `<button type="button" data-i="${i}" data-lv="${v}">${t}</button>`).join("")}</div>`
+      ? `<div class="seg small lvl${r.levels.length > 2 ? " l3" : ""}" id="b${i}">${r.levels.map(([v, t]) => `<button type="button" data-i="${i}" data-lv="${v}">${t}</button>`).join("")}</div>`
       : r.kind === "w"
       ? `<div class="wbox" id="b${i}"><input type="number" inputmode="decimal" step="0.1" min="0" data-i="${i}" placeholder="0" aria-label="${escapeHtml(r.name)}剩幾斤"><span class="unit">${r.unit}</span></div>`
-      : `<div class="qbox" id="b${i}"><button type="button" data-i="${i}" data-d="-1" aria-label="減少">${ICON.minus}</button>
-          <input type="number" inputmode="numeric" min="0" data-i="${i}" placeholder="0" aria-label="${escapeHtml(r.name + (r.spec || ""))}剩幾${r.unit}">
-          <button type="button" data-i="${i}" data-d="1" aria-label="增加">${ICON.plus}</button></div>`;
+      : `<div class="qbox" id="b${i}"><input type="number" inputmode="numeric" pattern="[0-9]*" min="0" data-i="${i}" placeholder="0"
+          aria-label="${escapeHtml(r.name + (r.spec || ""))}剩幾${r.unit}"><span class="unit">${r.unit}</span></div>`;
     const title = r.multi ? `<div class="it-sub"><span class="spec">${r.cnt ? "幾" : ""}${escapeHtml(r.spec)}</span></div>` : r.kind === "lvl" ? `<div class="it-name">${escapeHtml(r.name)}</div><div class="it-sub">剩多少</div>`
       : `<div class="it-name">${escapeHtml(r.name)}</div>${r.unit ? `<div class="it-sub">${r.kind === "w" ? "秤重" : (r.spec ? escapeHtml(r.spec) : "") || "幾" + r.unit}</div>` : ""}`;
     html += `<div class="it"><div class="it-main">${title}</div>${ctrl}</div>`;
@@ -522,7 +526,7 @@ function stockText(){
     const v = rec.v[r.key]; if (!v) return;
     let g = groups.find(x => x.cat === r.cat && x.grp === r.grp);
     if (!g) { g = { cat: r.cat, grp: r.grp, parts: [] }; groups.push(g); }
-    g.parts.push(r.kind === "lvl" ? (LEVELS[v] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? `${r.spec} ${v}` : `${v}${r.unit ? " " + r.unit : ""}`);
+    g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? `${r.spec} ${v}` : `${v}${r.unit ? " " + r.unit : ""}`);
   });
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
   groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n〔${cat}〕\n`; } t += `${g.grp}　${g.parts.join("、")}\n`; });
@@ -667,7 +671,7 @@ function askStorePw(){
 /* 啟動 */
 (function(){
   const d = new Date();
-  $("todayLine").textContent = `今天 ${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（星期${WK[d.getDay()]}）`;
+  $("todayLine").textContent = `今天 ${d.getMonth() + 1}/${d.getDate()}（星期${WK[d.getDay()]}）`;
   render(); fill(); Sync.paint();
   if (!Sync.on() && !Sync.cfg().skip && window.isSecureContext && window.crypto && crypto.subtle) askStorePw();
   Sync.run();
