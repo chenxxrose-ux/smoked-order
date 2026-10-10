@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="訂購">
 <meta name="format-detection" content="telephone=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>煙燻滷味訂購</title>
 <style>
@@ -228,7 +228,28 @@
   .list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
   .list-head h3{margin:0}
   .privacy{font-size:12px;color:var(--sub);margin:0 0 12px}
-  .prep-open{width:100%;margin-bottom:12px}
+  .prep-open{width:100%;margin-bottom:8px}
+  .hdr-right{display:flex;align-items:center;gap:6px;flex:none}
+  .sync-pill{min-height:40px;padding:0 10px;border-radius:20px;font-size:12px;color:var(--sub);background:transparent;display:inline-flex;align-items:center;gap:5px}
+  .sync-pill::before{content:"";width:8px;height:8px;border-radius:50%;background:#5B9A68}
+  .sync-pill.busy::before{background:var(--gold)}
+  .sync-pill.off::before,.sync-pill.err::before{background:var(--red)}
+  .sync-box{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:14px;color:var(--sub);display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .sync-box b{color:var(--ink);font-weight:500}
+  .sync-box.cta{display:block}
+  .sync-box.cta .btn{width:100%;margin-top:10px}
+  .pw-in{width:100%;height:48px;border:none;border-radius:10px;background:var(--fill);font-size:17px;padding:0 14px;margin-bottom:10px;outline:none}
+  .pw-in:focus{background:var(--soy-tint)}
+  .sync-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .sync-btns .btn{min-width:0}
+  .sync-btns .btn:only-child{grid-column:1 / -1}
+  .code-in{width:100%;min-height:110px;border:none;border-radius:12px;background:var(--card);padding:12px;font-size:14px;font-family:ui-monospace,Menlo,monospace;
+    word-break:break-all;resize:vertical;outline:none;margin-bottom:10px}
+  .code-in:focus{box-shadow:0 0 0 2px var(--soy-tint)}
+  .sheet .pin-in{background:var(--card)}
+  .file-btn{position:relative;overflow:hidden}
+  .file-btn input{position:absolute;inset:0;opacity:0;font-size:16px}
+  @media (max-width:340px){ .sync-btns{grid-template-columns:1fr} }
   .day-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--card);border-radius:var(--r);padding:4px;margin-bottom:10px}
   .day-nav button{width:44px;height:44px;border-radius:12px;font-size:22px}
   .day-nav button:active{background:var(--fill-press)}
@@ -253,7 +274,8 @@
 <header class="top">
   <div class="top-in">
     <div><h1>煙燻滷味</h1><p class="today" id="todayLine"></p></div>
-    <a href="#" class="hdr-btn" id="viewOrders"><svg class="ic" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>訂單</a>
+    <div class="hdr-right"><button type="button" class="sync-pill" id="syncPill" hidden></button>
+    <a href="#" class="hdr-btn" id="viewOrders"><svg class="ic" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>訂單</a></div>
   </div>
 </header>
 
@@ -337,6 +359,7 @@ const ICON = (() => {
     copy:  svg('<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/>'),
     scale: svg('<path d="M12 4v16M7 20h10M5 8h14M5 8l-3 6a3 3 0 0 0 6 0zM19 8l-3 6a3 3 0 0 0 6 0z"/>'),
     check: svg('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>'),
+    download: svg('<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 15v3.5A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V15"/>'),
     list:  svg('<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>'),
   };
 })();
@@ -640,7 +663,7 @@ function setupPinDialog(legacyCount){
 function unlockDialog(){
   return new Promise(resolve => {
     dlgBox.innerHTML = `<h4>輸入訂單密碼</h4><p>訂單裡有客人電話，輸入密碼後才能查看。</p>
-      ${pinField("pinU", "密碼")}<div class="dlg-err" id="pinErr"></div>
+      ${(Vault.meta() || {}).shared ? pwField("pinU", "店家密碼") : pinField("pinU", "密碼")}<div class="dlg-err" id="pinErr"></div>
       <div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn" data-yes>解鎖</button></div>
       <div style="text-align:center;margin-top:8px"><button type="button" class="link-btn" data-forgot>忘記密碼</button></div>`;
     dlg.classList.add("show");
@@ -657,10 +680,10 @@ function unlockDialog(){
     dlgBox.querySelector("[data-forgot]").onclick = async () => {
       closeDlg();
       const a = await askConfirm({ title: "忘記密碼", ok: "清除並重設", danger: true,
-        msg: "密碼無法找回。要重新設定，必須刪除這支手機上所有已存的訂單。" });
+        msg: (Vault.meta() || {}).shared ? "會清除這支手機上的訂單資料。雲端的訂單不受影響，之後用正確的店家密碼就能重新加入。" : "密碼無法找回。要重新設定，必須刪除這支手機上所有已存的訂單。" });
       const b = a && await askConfirm({ title: "確定刪除全部訂單？", ok: "刪除全部", danger: true,
         msg: "所有訂單和客人電話都會永久刪除，無法復原。" });
-      if (b) { Vault.wipe(); toast("已清除全部訂單，下次存檔時會請你設定新密碼"); }
+      if (b) { Vault.wipe(); localStorage.removeItem(SYNC_KEY); Sync.paint(); toast("已清除這支手機的資料，下次存檔時會請你輸入店家密碼"); }
       resolve(false);
     };
   });
@@ -705,7 +728,7 @@ const Vault = {
     await this.migrateLegacy();
   },
   async unlock(pin){
-    const m = this.meta(); if (!m || !/^\d{4,8}$/.test(pin)) return false;
+    const m = this.meta(); if (!m || typeof pin !== "string" || pin.length < 4 || pin.length > 64) return false;
     let pk8;
     try { pk8 = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(m.iv) }, await this.pinKey(pin, unb64(m.salt), m.iter), unb64(m.priv)); }
     catch (e) { return false; }
@@ -717,33 +740,99 @@ const Vault = {
     return true;
   },
   lock(){ this.priv = null; this.orders = null; },
+  /* 產生一組新的金鑰，私鑰用店家密碼加密 */
+  async makeMeta(pw, shared){
+    const kp = await crypto.subtle.generateKey({ ...RSA, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) }, true, ["wrapKey", "unwrapKey"]);
+    const pubJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
+    const pk8 = await crypto.subtle.exportKey("pkcs8", kp.privateKey);
+    const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 300000;
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.pinKey(pw, salt, iter), pk8);
+    return { v: 2, shared: !!shared, iter, salt: b64(salt), iv: b64(iv), priv: b64(ct),
+      pub: { kty: pubJwk.kty, n: pubJwk.n, e: pubJwk.e, alg: pubJwk.alg, ext: true } };
+  },
+  /* 換成新的金鑰（加入或建立店家同步），把手上的訂單用新金鑰重新加密 */
+  async install(meta, pw, carry){
+    const keep = carry || [];
+    const old = localStorage.getItem(VAULT_KEY), oldRecs = localStorage.getItem(ENC_KEY);
+    try {
+      localStorage.setItem(VAULT_KEY, JSON.stringify(meta));
+      this.pub = null; this.priv = null;
+      if (!(await this.unlock(pw))) throw new Error("pw");
+      const recs = [];
+      for (const o of keep) { o.upd = o.upd || o.id; const rec = await this.seal(o); if (meta.shared) rec.p = 1; recs.push(rec); }
+      this.writeRecords(recs);
+      this.orders = keep.slice().sort((a, b) => b.id - a.id);
+      localStorage.removeItem(LEGACY_KEY);
+    } catch (e) {
+      // 失敗就還原，不遺失資料
+      if (old) localStorage.setItem(VAULT_KEY, old); else localStorage.removeItem(VAULT_KEY);
+      if (oldRecs) localStorage.setItem(ENC_KEY, oldRecs);
+      this.pub = null; this.lock();
+      throw e;
+    }
+  },
+  /* 把雲端的加密資料合併進來；回傳有變動的 id */
+  async mergeRemote(remote, known){
+    const local = this.records(), byId = new Map(local.map(r => [r.id, r])), rIds = new Set(remote.map(r => r.id));
+    const changed = [], removed = [];
+    for (const rr of remote) {
+      const l = byId.get(rr.id);
+      if (!l || (!l.p && rr.upd > (l.upd || 0))) { byId.set(rr.id, rr); changed.push(rr.id); }
+    }
+    for (const l of local) {
+      if (rIds.has(l.id) || l.p) continue;
+      if (known.has(l.id)) { byId.delete(l.id); removed.push(l.id); }   // 其他手機刪掉了
+      else { l.p = 1; }                                                  // 還沒上傳過
+    }
+    this.writeRecords([...byId.values()].sort((a, b) => b.id - a.id));
+    if (this.orders && this.priv) {
+      for (const id of changed) {
+        try { const o = await this.open(byId.get(id)); const j = this.orders.findIndex(x => x.id === id); if (j >= 0) this.orders[j] = o; else this.orders.push(o); } catch (e) {}
+      }
+      if (removed.length) this.orders = this.orders.filter(o => !removed.includes(o.id));
+      this.orders.sort((a, b) => b.id - a.id);
+    }
+    return { changed, removed };
+  },
+  markPushed(id){ const r = this.records(); const x = r.find(y => y.id === id); if (x) { delete x.p; this.writeRecords(r); } },
   async seal(order){
     await this.loadPub();
     const k = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, te.encode(JSON.stringify(order)));
     const wk = await crypto.subtle.wrapKey("raw", k, this.pub, { name: "RSA-OAEP" });
-    return { id: order.id, iv: b64(iv), wk: b64(wk), ct: b64(ct) };
+    return { id: order.id, iv: b64(iv), wk: b64(wk), ct: b64(ct), upd: order.upd || order.id };
   },
   async open(rec){
     const k = await crypto.subtle.unwrapKey("raw", unb64(rec.wk), this.priv, { name: "RSA-OAEP" }, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
     return JSON.parse(td.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(rec.iv) }, k, unb64(rec.ct))));
   },
   async put(order){
+    order.upd = Date.now();
     const rec = await this.seal(order);
+    if (Sync.on()) rec.p = 1;                       // 等待上傳
     const r = this.records(), i = r.findIndex(x => x.id === order.id);
     if (i >= 0) r[i] = rec; else r.unshift(rec);
     this.writeRecords(r);
+    Sync.soon();
     if (this.orders) {
       const j = this.orders.findIndex(x => x.id === order.id);
       if (j >= 0) this.orders[j] = order; else this.orders.unshift(order);
     }
   },
+  async putRaw(order){
+    const rec = await this.seal(order);
+    const r = this.records(), i = r.findIndex(x => x.id === order.id);
+    if (i >= 0) r[i] = rec; else r.unshift(rec);
+    this.writeRecords(r);
+    if (this.orders) { const j = this.orders.findIndex(x => x.id === order.id); if (j >= 0) this.orders[j] = order; else this.orders.unshift(order); }
+  },
   remove(id){
     this.writeRecords(this.records().filter(x => x.id !== id));
+    Sync.queueDelete([id]);
     if (this.orders) this.orders = this.orders.filter(x => x.id !== id);
   },
-  clearOrders(){ this.writeRecords([]); localStorage.removeItem(LEGACY_KEY); if (this.orders) this.orders = []; },
+  clearOrders(){ Sync.queueDelete(this.records().map(r => r.id)); this.writeRecords([]); localStorage.removeItem(LEGACY_KEY); if (this.orders) this.orders = []; },
   wipe(){ [VAULT_KEY, ENC_KEY, LEGACY_KEY].forEach(k => localStorage.removeItem(k)); this.pub = null; this.lock(); },
   /* 舊版明碼訂單 → 加密後才刪除原資料，避免遺失 */
   async migrateLegacy(){
@@ -765,6 +854,167 @@ const Vault = {
     return recs.length;
   },
 };
+
+/* ===== 雲端同步（Firebase；訂單加密後才上傳，雲端只有亂碼） =====
+   房間代號由店家密碼推算，沒有密碼找不到資料；只連到 Google Firebase，不連其他地方。 */
+const FB = { apiKey: "AIzaSyCpzgphKvbKT77QNIsdj4r43VwF-6dAp1o", projectId: "smoked-order" };
+const FS = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents`;
+const SYNC_KEY = "syncCfg";
+const Sync = {
+  idToken: null, exp: 0, busy: false, again: false, last: 0, state: "", timer: null,
+  cfg(){ try { return JSON.parse(localStorage.getItem(SYNC_KEY) || "null") || {}; } catch (e) { return {}; } },
+  saveCfg(c){ localStorage.setItem(SYNC_KEY, JSON.stringify(c)); },
+  on(){ return !!this.cfg().room; },
+  known(){ return new Set(this.cfg().known || []); },
+  async token(){
+    if (this.idToken && Date.now() < this.exp - 60000) return this.idToken;
+    const c = this.cfg();
+    if (c.rt) {
+      const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FB.apiKey}`, { method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=refresh_token&refresh_token=" + encodeURIComponent(c.rt) });
+      if (r.ok) { const j = await r.json(); this.idToken = j.id_token; this.exp = Date.now() + Number(j.expires_in) * 1000; this.saveCfg({ ...this.cfg(), rt: j.refresh_token }); return this.idToken; }
+    }
+    const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB.apiKey}`, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ returnSecureToken: true }) });
+    if (!r.ok) throw new Error("auth");
+    const j = await r.json(); this.idToken = j.idToken; this.exp = Date.now() + Number(j.expiresIn) * 1000;
+    this.saveCfg({ ...this.cfg(), rt: j.refreshToken });
+    return this.idToken;
+  },
+  async api(method, path, body){
+    const t = await this.token();
+    const r = await fetch(FS + path, { method, headers: { Authorization: "Bearer " + t, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 404 && method !== "PATCH") return null;
+    if (!r.ok) throw new Error("http " + r.status);
+    return method === "DELETE" ? null : r.json();
+  },
+  async roomId(pw){
+    const base = await crypto.subtle.importKey("raw", te.encode(pw), "PBKDF2", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: te.encode("smoked-order/room/v1"), iterations: 300000, hash: "SHA-256" }, base, 256);
+    return [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, "0")).join("");
+  },
+  doc(rec){ return { fields: { iv: { stringValue: rec.iv }, ct: { stringValue: rec.wk + "." + rec.ct }, upd: { integerValue: String(rec.upd || 0) } } }; },
+  rec(d){
+    const f = d.fields || {}, parts = String((f.ct && f.ct.stringValue) || "").split(".");
+    return { id: Number(d.name.split("/").pop()), iv: f.iv && f.iv.stringValue, wk: parts[0], ct: parts[1], upd: Number((f.upd && f.upd.integerValue) || 0) };
+  },
+  async getMeta(room){ const d = await this.api("GET", `/rooms/${room}/orders/_meta`); return d ? JSON.parse(d.fields.ct.stringValue) : null; },
+  async putMeta(room, meta){ await this.api("PATCH", `/rooms/${room}/orders/_meta`, { fields: { iv: { stringValue: "meta" }, ct: { stringValue: JSON.stringify(meta) }, upd: { integerValue: "0" } } }); },
+  async listAll(room){
+    const out = []; let tok = "";
+    do {
+      const j = await this.api("GET", `/rooms/${room}/orders?pageSize=300` + (tok ? "&pageToken=" + encodeURIComponent(tok) : ""));
+      ((j && j.documents) || []).forEach(d => { if (!d.name.endsWith("/_meta")) { const r = this.rec(d); if (Number.isFinite(r.id) && r.ct) out.push(r); } });
+      tok = j && j.nextPageToken;
+    } while (tok);
+    return out;
+  },
+  queueDelete(ids){ if (!this.on() || !ids.length) return; const c = this.cfg(); c.dels = [...new Set([...(c.dels || []), ...ids])]; this.saveCfg(c); this.soon(); },
+  soon(){ clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), 300); },
+  async run(){
+    if (!this.on()) { this.paint(); return; }
+    if (this.busy) { this.again = true; return; }
+    if (!navigator.onLine) { this.state = "off"; this.paint(); return; }
+    this.busy = true; this.state = "busy"; this.paint();
+    try {
+      const room = this.cfg().room;
+      for (const id of this.cfg().dels || []) {
+        await this.api("DELETE", `/rooms/${room}/orders/${id}`);
+        const c = this.cfg(); c.dels = (c.dels || []).filter(x => x !== id); this.saveCfg(c);
+      }
+      for (const r of Vault.records().filter(r => r.p)) { await this.api("PATCH", `/rooms/${room}/orders/${r.id}`, this.doc(r)); Vault.markPushed(r.id); }
+      const remote = await this.listAll(room);
+      const { changed, removed } = await Vault.mergeRemote(remote, this.known());
+      for (const r of Vault.records().filter(r => r.p)) { await this.api("PATCH", `/rooms/${room}/orders/${r.id}`, this.doc(r)); Vault.markPushed(r.id); }
+      this.saveCfg({ ...this.cfg(), known: Vault.records().map(r => r.id) });
+      this.last = Date.now(); this.state = "ok";
+      if ((changed.length || removed.length) && Vault.orders && modal.classList.contains("show")) {
+        if (sheet.dataset.sub === "list") showOrders(); else if (sheet.dataset.sub === "prep") showPrep();
+      }
+    } catch (e) { this.state = navigator.onLine ? "err" : "off"; }
+    finally { this.busy = false; this.paint(); if (this.again) { this.again = false; this.soon(); } }
+  },
+  label(){
+    const t = this.last ? new Date(this.last).toTimeString().slice(0, 5) : "";
+    return { busy: "同步中…", off: "離線，有網路後會自動同步", err: "同步失敗，稍後自動重試", ok: `已同步 ${t}` }[this.state] || "等待同步";
+  },
+  paint(){
+    const p = document.getElementById("syncPill");
+    if (!this.on()) { p.hidden = true; return; }
+    p.hidden = false;
+    p.className = "sync-pill " + (this.state || "");
+    p.textContent = { busy: "同步中", off: "離線", err: "未同步", ok: "已同步" }[this.state] || "同步";
+    const box = document.getElementById("syncLine"); if (box) box.textContent = this.label();
+  },
+};
+document.getElementById("syncPill").onclick = () => Sync.run();
+setInterval(() => { if (!document.hidden) Sync.run(); }, 20000);
+window.addEventListener("online", () => Sync.run());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.run(); });
+
+/* 店家密碼：第一次使用、或把這支手機加入同步 */
+const pwField = (id, ph) => `<input class="pw-in" id="${id}" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" placeholder="${ph}">`;
+function storeDialog(carry, intro){
+  return new Promise(resolve => {
+    const done = v => { closeDlg(); resolve(v); };
+    const step1 = () => {
+      dlgBox.innerHTML = `<h4>輸入店家密碼</h4>
+        <p>${intro || ""}其他手機已經在用的話，輸入同一組密碼就會自動同步訂單；第一次建立請自己設定一組（至少 8 碼，忘記就無法找回）。</p>
+        ${pwField("spw", "店家密碼")}<div class="dlg-err" id="pwErr"></div>
+        <div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn" data-yes>下一步</button></div>`;
+      dlg.classList.add("show");
+      const inp = document.getElementById("spw"), err = document.getElementById("pwErr"), yes = dlgBox.querySelector("[data-yes]");
+      setTimeout(() => inp.focus(), 50);
+      dlgBox.querySelector("[data-no]").onclick = () => done(false);
+      const go = async () => {
+        const pw = inp.value;
+        if (pw.length < 8) { err.textContent = "店家密碼至少 8 碼"; return; }
+        if (!navigator.onLine) { err.textContent = "第一次設定需要網路，請連上網路再試"; return; }
+        yes.disabled = true; err.textContent = "連線中…";
+        try {
+          const room = await Sync.roomId(pw);
+          const meta = await Sync.getMeta(room);
+          if (meta) {
+            err.textContent = "加入中…";
+            await Vault.install(meta, pw, carry);
+            Sync.saveCfg({ ...Sync.cfg(), room, known: [] });
+            done("joined");
+          } else step2(pw, room);
+        } catch (e) { yes.disabled = false; err.textContent = "連不上同步伺服器，請確認網路後再試"; }
+      };
+      inp.onkeydown = e => { if (e.key === "Enter") go(); };
+      yes.onclick = go;
+    };
+    const step2 = (pw, room) => {
+      dlgBox.innerHTML = `<h4>建立新的店家同步</h4>
+        <p>找不到使用這組密碼的店家，會用它建立新的。如果其他手機已經在用，請按「返回」確認密碼有沒有打錯。</p>
+        ${pwField("spw2", "再輸入一次店家密碼")}<div class="dlg-err" id="pwErr"></div>
+        <div class="dlg-btns"><button type="button" class="btn ghost" data-no>返回</button><button type="button" class="btn" data-yes>建立</button></div>`;
+      const inp = document.getElementById("spw2"), err = document.getElementById("pwErr"), yes = dlgBox.querySelector("[data-yes]");
+      setTimeout(() => inp.focus(), 50);
+      dlgBox.querySelector("[data-no]").onclick = step1;
+      yes.onclick = async () => {
+        if (inp.value !== pw) { err.textContent = "兩次輸入不一樣"; return; }
+        yes.disabled = true; err.textContent = "建立中…";
+        try {
+          const meta = await Vault.makeMeta(pw, true);
+          await Sync.putMeta(room, meta);
+          await Vault.install(meta, pw, carry);
+          Sync.saveCfg({ ...Sync.cfg(), room, known: [] });
+          done("created");
+        } catch (e) { yes.disabled = false; err.textContent = "建立失敗，請確認網路後再試"; }
+      };
+    };
+    step1();
+  });
+}
+async function afterStore(r, n){
+  if (!r) return false;
+  toast(r === "joined" ? "已加入店家同步，正在下載訂單" : `已建立店家同步${n ? `，${n} 筆訂單上傳中` : ""}`);
+  await Sync.run();
+  return true;
+}
 
 /* 自動鎖定：閒置 10 分鐘，或切到背景 1 分鐘 */
 let idleTimer = null, hideTimer = null;
@@ -846,16 +1096,16 @@ document.getElementById("submitBtn").onclick = () => {
       toast("這個網址無法加密保存（需要 https），這筆訂單不會存檔，請先分享或複製。", true);
     } else {
       if (!Vault.exists()) {
-        const pin = await setupPinDialog(Vault.legacy().length);
-        if (!pin) return;                         // 取消就留在確認畫面
-        btn.disabled = true; btn.textContent = "加密中…";
-        try { await Vault.setup(pin); } catch (err) { btn.disabled = false; btn.textContent = "送出訂單"; toast("密碼設定失敗，請再試一次", true); return; }
+        const legacy = Vault.legacy();
+        const r = await storeDialog(legacy, "第一次使用這支手機。");
+        if (!r) return;                           // 取消就留在確認畫面
+        afterStore(r, legacy.length);
       }
       btn.disabled = true;
       try { await Vault.put(order); saved = true; }
       catch (err) { toast("訂單儲存失敗，請先分享或複製訂單文字保留。", true); }
     }
-    sheet.dataset.view = "";
+    sheet.dataset.view = ""; sheet.dataset.sub = "";
     sheet.innerHTML = `<h3>${ICON.check}訂單完成</h3>
       ${saved ? "" : `<p class="note" style="color:var(--red)">這筆訂單沒有存檔。</p>`}
       ${shareBlock("分享訂單", "複製訂單文字")}
@@ -869,13 +1119,9 @@ document.getElementById("submitBtn").onclick = () => {
 async function openOrders(){
   if (!Vault.supported()) { toast("這個網址無法讀取加密訂單，請用 https 網址開啟。", true); return; }
   if (!Vault.exists()) {
-    const n = Vault.legacy().length;
-    if (!n) { sheet.dataset.view = "orders"; sheet.innerHTML = `<h3>訂單列表</h3><p class="note">還沒有訂單。送出第一筆時，會請你設定訂單密碼。</p>
-      <div class="actions"><button type="button" class="btn ghost" id="closeList">關閉</button></div>`;
-      modal.classList.add("show"); document.getElementById("closeList").onclick = () => modal.classList.remove("show"); return; }
-    const pin = await setupPinDialog(n); if (!pin) return;
-    await Vault.setup(pin);
-    toast(`已加密 ${n} 筆舊訂單`);
+    const legacy = Vault.legacy();
+    const r = await storeDialog(legacy, legacy.length ? `這支手機有 ${legacy.length} 筆舊訂單，會一起加密上傳。` : "");
+    if (!(await afterStore(r, legacy.length))) return;
   } else if (!Vault.priv) {
     if (!(await unlockDialog())) return;
   }
@@ -886,10 +1132,13 @@ function showOrders(){
   if (!Vault.orders) { openOrders(); return; }
   armIdle();
   const all = Vault.orders;
-  sheet.dataset.view = "orders";
+  sheet.dataset.view = "orders"; sheet.dataset.sub = "list";
   sheet.innerHTML = `<div class="list-head"><h3>訂單列表</h3><button type="button" class="link-btn" id="lockNow">鎖定</button></div>
     ${all.length ? `<button type="button" class="btn ghost prep-open" id="openPrep">${ICON.list}當天備料統計</button>` : ""}
-    <p class="privacy">訂單加密存在這支手機，不會上傳。電話預設遮蔽。</p>` +
+    ${Sync.on() ? `<div class="sync-box"><span>雲端同步：<b id="syncLine">${escapeHtml(Sync.label())}</b></span><button type="button" class="link-btn" id="syncNow">立即同步</button></div>`
+      : `<div class="sync-box cta"><b>開啟多支手機同步</b><br>設定一組店家密碼，所有手機的訂單就會自動同步。這支手機現有的 ${all.length} 筆訂單會一起加密上傳。
+        <button type="button" class="btn" id="enableSync">開啟同步</button></div>`}
+    <p class="privacy">${Sync.on() ? "訂單加密後才同步到雲端，雲端只有亂碼。" : "訂單加密存在這支手機，不會上傳。"}電話預設遮蔽。</p>` +
     (all.length ? all.map((o, i) => `<div class="order${hasPending(o.items) ? " pending" : ""}">
       ${hasPending(o.items) ? `<div class="pend-tag">${ICON.scale}有秤重品項還沒補金額</div>` : ""}
       <pre class="preview" data-pv="${i}"></pre>
@@ -912,6 +1161,13 @@ function showOrders(){
   const close = () => modal.classList.remove("show");
   document.getElementById("closeList").onclick = close;
   const op = document.getElementById("openPrep"); if (op) op.onclick = () => showPrep();
+  const sn = document.getElementById("syncNow"); if (sn) sn.onclick = () => Sync.run();
+  const es = document.getElementById("enableSync");
+  if (es) es.onclick = async () => {
+    const carry = Vault.orders.slice();
+    const r = await storeDialog(carry, "之後看訂單改用店家密碼。");
+    if (await afterStore(r, carry.length)) showOrders();
+  };
   document.getElementById("lockNow").onclick = () => { Vault.lock(); close(); toast("訂單已鎖定"); };
   sheet.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(buildText(all[b.dataset.copy]), b));
   sheet.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareText(buildText(all[b.dataset.share]), b));
@@ -934,13 +1190,13 @@ function showOrders(){
   sheet.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     const o = all[b.dataset.del];
     if (await askConfirm({ title: "刪除這筆訂單？", ok: "刪除", danger: true,
-      msg: `${o.name}・取貨 ${fmtDate(o.date)}。刪除後無法復原。` })) { Vault.remove(o.id); toast("已刪除"); showOrders(); }
+      msg: `${o.name}・取貨 ${fmtDate(o.date)}。${Sync.on() ? "其他手機也會一起刪除，" : ""}刪除後無法復原。` })) { Vault.remove(o.id); toast("已刪除"); showOrders(); }
   });
   const ca = document.getElementById("copyAll");
   if (ca) ca.onclick = () => copyText(all.map(o => buildText(o)).join("\n\n══════════════\n\n"), ca);
   const cl = document.getElementById("clearAll");
   if (cl) cl.onclick = async () => {
-    const a = await askConfirm({ title: "清除全部訂單？", ok: "繼續", danger: true, msg: `這支手機上的 ${all.length} 筆訂單和客人電話都會刪除。` });
+    const a = await askConfirm({ title: "清除全部訂單？", ok: "繼續", danger: true, msg: Sync.on() ? `所有同步的手機上的 ${all.length} 筆訂單和客人電話都會刪除。` : `這支手機上的 ${all.length} 筆訂單和客人電話都會刪除。` });
     const b2 = a && await askConfirm({ title: "再確認一次", ok: "永久刪除全部", danger: true, msg: "刪除後無法復原。確定要清除全部訂單嗎？" });
     if (b2) { Vault.clearOrders(); toast("已清除全部訂單"); showOrders(); }
   };
@@ -949,7 +1205,7 @@ function showOrders(){
 /* 取貨當天：補上秤重後的實際金額 */
 function editWeigh(o){
   const ws = o.items.map((l, i) => ({ l, i })).filter(x => x.l.weigh);
-  sheet.dataset.view = "orders";
+  sheet.dataset.view = "orders"; sheet.dataset.sub = "weigh";
   sheet.innerHTML = `<h3>補秤重金額</h3>
     <p class="note">${escapeHtml(o.name)}・${fmtDate(o.date)} ${escapeHtml(o.ptime || "")}</p>
     <div class="rows">${ws.map(({ l, i }) => `<div class="row" style="align-items:center"><span style="color:var(--ink)">${escapeHtml(l.short || l.item)}</span>
@@ -1057,7 +1313,7 @@ function showPrep(){
   const pend = dayOrders.filter(o => hasPending(o.items)).length;
   const [y, m, d] = prepDate.split("-").map(Number), info = dayInfo(new Date(y, m - 1, d));
   let cat = "";
-  sheet.dataset.view = "orders";
+  sheet.dataset.view = "orders"; sheet.dataset.sub = "prep";
   sheet.innerHTML = `<h3>當天備料統計</h3>
     <div class="day-nav"><button type="button" id="dPrev" aria-label="前一天">‹</button>
       <b>${fmtDate(prepDate)}<small>${escapeHtml(info.hol || info.wor || (info.lun ? "農曆" + info.lun : ""))}</small></b>
@@ -1089,6 +1345,8 @@ function showPrep(){
 }
 
 document.getElementById("viewOrders").onclick = e => { e.preventDefault(); openOrders(); };
+
+Sync.paint(); Sync.run();
 
 /* 開啟時：已設密碼的話，把舊版明碼訂單立刻加密（只需公鑰，不用輸入密碼） */
 if (Vault.supported() && Vault.exists() && Vault.legacy().length) Vault.migrateLegacy().catch(() => {});
