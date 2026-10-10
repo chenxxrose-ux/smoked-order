@@ -9,7 +9,7 @@
    ===================================================== */
 const MENU = [
   { cat: "煙燻", items: [
-    { name: "雞肉",   opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }] },
+    { name: "雞肉",   weigh: true, opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }] },
     { name: "鴨肉",   opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }, { label: "前半", price: 0 }, { label: "後半", price: 0 }] },
     { name: "鴨頭",   opts: [{ label: "一支", price: 0 }] },
     { name: "鴨翅",   opts: [{ label: "一支", price: 0 }] },
@@ -21,7 +21,7 @@ const MENU = [
     { name: "雞脖",   opts: [{ label: "一個", price: 0 }] },
     { name: "豬舌頭", opts: [{ label: "一顆", price: 0 }, { label: "半顆", price: 0 }] },
     { name: "豬心",   opts: [{ label: "一顆", price: 0 }, { label: "半顆", price: 0 }] },
-    { name: "鴨心",   opts: [{ label: "一個", price: 0 }] },
+    { name: "鴨心",   weigh: true, opts: [{ label: "一個", price: 0 }] },
     { name: "鴨舌",   opts: [{ label: "一個", price: 0 }] },
     { name: "鴨胗",   opts: [{ label: "一個", price: 0 }] },
     { name: "雞腳",   type: "money" },                  // 客人說要買多少錢（不用秤重）

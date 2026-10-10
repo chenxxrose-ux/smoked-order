@@ -95,7 +95,7 @@
   .pin{display:inline-flex;align-items:center;gap:2px;height:32px;padding:0 8px;background:var(--fill);border-radius:8px;color:var(--sub)}
   .pin input{width:58px;height:32px;border:none;background:transparent;font-size:16px;color:var(--ink);padding:0;outline:none;text-align:left}
   .pin:focus-within{background:var(--soy-tint);color:var(--soy)}
-  .wtag{color:var(--gold)}
+  .wtag{flex:none;white-space:nowrap;font-size:12px;line-height:1;padding:5px 8px;border-radius:999px;background:var(--gold-soft);color:var(--gold);font-weight:500}
 
   .stepper{flex:none;display:flex;align-items:center;gap:2px}
   .stepper button{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--fill);
@@ -457,7 +457,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
-<script src="shared.js?v=1"></script>
+<script src="shared.js?v=2"></script>
 <script src="core.js?v=5"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
@@ -485,8 +485,9 @@ function folded(){ try { return JSON.parse(localStorage.getItem("orderFold") || 
 function paintPrices(){
   document.querySelectorAll("#menu [data-pr]").forEach(el => {
     const v = prices[el.dataset.pr], pc = el.dataset.pr.endsWith("-pc"), note = el.dataset.note ? `・${el.dataset.note}` : "";
-    el.textContent = pc ? (v ? `約$${v}/塊・秤重` : "秤重") : (v ? `$${v}${note}` : `未設價${note}`);
-    el.classList.toggle("none", !v && !pc);
+    const w = pc || el.dataset.w;
+    el.textContent = pc ? (v ? `約$${v}/塊・秤重` : "秤重") : w ? (v ? `約$${v}・秤重` : "秤重") : (v ? `$${v}${note}` : `未設價${note}`);
+    el.classList.toggle("none", !v && !w);
   });
 }
 /* 單價設定：集中在這裡改，品項列就只剩一行 */
@@ -562,7 +563,7 @@ function render(){
           const multi = it.opts.length > 1;
           return `<div class="it one${multi && oi ? " sub" : ""}" data-item="${it.name}"><div class="it-main">
               <span class="it-name">${multi && oi ? "" : it.name}</span><span class="${multi ? "spec-m" : "spec-s"}">${o.label.replace(/（.*?）/, "")}</span>
-              <button type="button" class="pr" data-pr="${key}" data-note="${(o.label.match(/（(.*?)）/) || [])[1] || ""}" aria-label="設定單價"></button></div>
+              <button type="button" class="pr" data-pr="${key}" data-note="${(o.label.match(/（(.*?)）/) || [])[1] || ""}"${it.weigh ? ' data-w="1"' : ""} aria-label="設定單價"></button></div>
             ${stepper(key)}</div>`;
         }).join("");
         html += it.opts.length > 1 ? `<div class="grp g1">${rows}</div>` : rows;
@@ -625,7 +626,10 @@ function getLines(){
       it.opts.forEach((o, oi) => {
         const k = `${si}-${ii}-${oi}`, q = qty[k], p = prices[k];
         const lab = it.opts.length > 1 ? o.label.replace(/\s*一份/, "") : "";
-        if (q > 0) lines.push({ cat: sec.cat, nm: it.name, sp: o.label, kind: "qty", q, short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${p ? "　單價$" + p : ""}`,
+        if (q > 0 && it.weigh) lines.push({ cat: sec.cat, nm: it.name, sp: o.label, kind: "qty", q, weigh: true, est: p ? p * q : null,
+          short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${p ? "　約$" + p : ""}`,
+          text: `【${sec.cat}】${it.name}（${o.label}）× ${q}${p ? "　約$" + p : ""}`, sub: null });
+        else if (q > 0) lines.push({ cat: sec.cat, nm: it.name, sp: o.label, kind: "qty", q, short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${p ? "　單價$" + p : ""}`,
           text: `【${sec.cat}】${it.name}（${o.label}）× ${q}${p ? "　@$" + p : ""}`, sub: p ? p * q : null });
       });
     }
@@ -1569,7 +1573,8 @@ function fillForm(o){
     } else {
       const oi = it.opts.findIndex(x => x.label === p.sp); if (oi < 0) continue;
       const k = `${si}-${ii}-${oi}`; qty[k] = (qty[k] || 0) + p.q;
-      if (l.sub && p.q) prices[k] = Math.round(l.sub / p.q);
+      const v = it.weigh ? (l.est || l.sub) : l.sub;
+      if (v && p.q) prices[k] = Math.round(v / p.q);
     }
   }
   // 畫面
