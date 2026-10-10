@@ -207,12 +207,36 @@
   .mk-pick{display:grid;grid-template-columns:1fr;gap:8px}
   .mk-pick .btn{min-height:52px;font-size:17px}
   @media (max-width:430px){ .sync-pill{font-size:0;gap:0;padding:0 12px} }   /* 窄螢幕只留同步圓點 */
+  /* 對齊：品名｜份量｜價格 三欄固定 */
+  .it.one .it-main{display:grid!important;grid-template-columns:4.3em 2.4em minmax(0,1fr);align-items:center;column-gap:8px}
+  .it.one .it-name{font-size:16px;white-space:nowrap}
+  .it.one .spec-s,.it.one .spec-m{font-size:15px;white-space:nowrap}
+  .it.one .spec-s{color:var(--sub)}
+  .it.one .pr{justify-self:start;text-align:left;max-width:100%;line-height:1.25;padding:2px 4px;margin:0 -4px}
+  .it.one .span2{grid-column:2 / 4;display:flex;align-items:center;gap:6px;min-width:0}
+  .it.one .span2 .pin input{width:64px}
+  .it.one .want,.it.one .stepper{flex:none}
+  .want{width:120px}
+  .it.one .span2 .pin{min-width:0;flex:0 1 auto}
+  .it.one .span2 .pin input{min-width:0}
+  /* 小螢幕：價格放到份量下面，欄位一樣對齊 */
+  @media (max-width:360px){
+    .it.one .it-main{grid-template-columns:4.2em minmax(0,1fr);column-gap:4px;row-gap:0}
+    .it.one .it-name{grid-row:1 / 3;align-self:center}
+    .it.one .approx{display:none}
+    .it.one .spec-s,.it.one .spec-m{grid-column:2;grid-row:1;font-size:14px;line-height:1.25}
+    .it.one .pr{grid-column:2;grid-row:2;margin:0;min-height:0;padding:0;font-size:12px;line-height:1.3}
+    .it.one .span2{grid-column:2;grid-row:1 / 3}
+    .it.one .span2 .pin{flex:1;padding:0 6px}
+    .it.one .span2 .pin input{width:100%}
+    .it.one .wtag{display:none}
+  }
   /* 精簡版面 */
   .it.one{min-height:50px!important;padding:3px 0!important}
   .grp.g1{padding-top:0}
   .grp.g1 .it{padding-left:0}
   .grp.g1 .it.sub{border-top:1px dashed var(--hair)}
-  .it.one .it-name:empty{display:inline-block;width:2em}
+
   .spec-m{font-size:15px;color:var(--ink)}
   .grp.g1 .it.picked{padding-left:14px}
   .sec{margin:14px 4px 6px}
@@ -434,7 +458,11 @@ function byLen(items){ return sortNames(items, it => it.name); }
 function folded(){ try { return JSON.parse(localStorage.getItem("orderFold") || "[]"); } catch (e) { return []; } }
 /* 品項列上的小字單價 */
 function paintPrices(){
-  document.querySelectorAll("#menu [data-pr]").forEach(el => { const v = prices[el.dataset.pr]; el.textContent = v ? `$${v}` : "未設價"; el.classList.toggle("none", !v); });
+  document.querySelectorAll("#menu [data-pr]").forEach(el => {
+    const v = prices[el.dataset.pr], pc = el.dataset.pr.endsWith("-pc"), note = el.dataset.note ? `・${el.dataset.note}` : "";
+    el.textContent = pc ? (v ? `約$${v}/塊・秤重` : "秤重") : (v ? `$${v}${note}` : `未設價${note}`);
+    el.classList.toggle("none", !v && !pc);
+  });
 }
 /* 單價設定：集中在這裡改，品項列就只剩一行 */
 function showPrices(focusKey){
@@ -442,6 +470,12 @@ function showPrices(focusKey){
   MENU.forEach((sec, si) => {
     const rows = [];
     byLen(sec.items).forEach(([it, ii]) => {
+      if (it.type === "piece") {
+        const k = `${si}-${ii}-pc`;
+        rows.push(`<div class="row" style="align-items:center"><span style="color:var(--ink)">${escapeHtml(it.name)}<small class="ps-spec">一塊大約（秤重）</small></span>
+          <label class="pin">$<input type="number" min="0" inputmode="numeric" data-ps="${k}" value="${prices[k] || ""}" placeholder="可不填"></label></div>`);
+        return;
+      }
       if (!it.opts) return;
       it.opts.forEach((o, oi) => {
         const k = `${si}-${ii}-${oi}`;
@@ -480,21 +514,19 @@ function render(){
     card.className = "card" + (shut ? " folded" : ""); card.dataset.card = sec.cat;
     let html = "";
     byLen(sec.items).forEach(([it, ii]) => {
-      if (it.type === "money") {
-        const key = `${si}-${ii}-amt`;
-        html += `<div class="it" data-item="${it.name}"><div class="it-main"><div class="it-name">${it.name}</div>
-          <div class="it-sub">要買 ${priceIn("data-amt", key, "", "金額")}</div></div>
-          <button type="button" class="want" data-want="${key}" aria-label="${it.name}要不要"></button></div>`;
-      } else if (it.type === "amount") {
-        const key = `${si}-${ii}-amt`;
-        html += `<div class="it" data-item="${it.name}"><div class="it-main"><div class="it-name">${it.name}</div>
-          <div class="it-sub">約 ${priceIn("data-amt", key, "", "金額")}<span class="wtag">秤重</span></div></div>
+      if (it.type === "money" || it.type === "amount") {
+        const key = `${si}-${ii}-amt`, w = it.type === "amount";
+        html += `<div class="it one" data-item="${it.name}"><div class="it-main">
+            <span class="it-name">${it.name}</span>
+            <span class="span2"><label class="pin">${w ? `<span class="approx">約</span>` : ""}$<input type="number" min="0" inputmode="numeric" data-amt="${key}" placeholder="金額" aria-label="${it.name}${w ? "大約" : ""}要買多少錢"></label>${w ? `<span class="wtag">秤重</span>` : ""}</span></div>
           <button type="button" class="want" data-want="${key}" aria-label="${it.name}要不要"></button></div>`;
       } else if (it.type === "piece") {
         const key = `${si}-${ii}-pc`;
         qty[key] = 0;
-        html += `<div class="it" data-item="${it.name}"><div class="it-main"><div class="it-name">${it.name}</div>
-          <div class="it-sub">一塊約 ${priceIn("data-pcp", key, "", "可不填")}<span class="wtag">按塊・秤重</span></div></div>
+        prices[key] = savedPrices[key] || 0;
+        html += `<div class="it one" data-item="${it.name}"><div class="it-main">
+            <span class="it-name">${it.name}</span><span class="spec-s">按塊</span>
+            <button type="button" class="pr" data-pr="${key}" aria-label="設定一塊大約多少錢"></button></div>
           ${stepper(key)}</div>`;
       } else {
         const rows = it.opts.map((o, oi) => {
@@ -504,8 +536,8 @@ function render(){
           prices[key] = saved !== undefined ? saved : (o.price || 0);
           const multi = it.opts.length > 1;
           return `<div class="it one${multi && oi ? " sub" : ""}" data-item="${it.name}"><div class="it-main">
-              <span class="it-name">${multi && oi ? "" : it.name}</span><span class="${multi ? "spec-m" : "spec-s"}">${o.label}</span>
-              <button type="button" class="pr" data-pr="${key}" aria-label="設定單價"></button></div>
+              <span class="it-name">${multi && oi ? "" : it.name}</span><span class="${multi ? "spec-m" : "spec-s"}">${o.label.replace(/（.*?）/, "")}</span>
+              <button type="button" class="pr" data-pr="${key}" data-note="${(o.label.match(/（(.*?)）/) || [])[1] || ""}" aria-label="設定單價"></button></div>
             ${stepper(key)}</div>`;
         }).join("");
         html += it.opts.length > 1 ? `<div class="grp g1">${rows}</div>` : rows;
@@ -543,7 +575,7 @@ function render(){
       if (amounts[k] > 0 && !want[k]) { want[k] = true; menu.querySelector(`[data-want="${k}"]`).classList.add("on"); }
       update();
     }
-    if (e.target.dataset.pcp) { pcPrice[e.target.dataset.pcp] = Number(e.target.value) || 0; update(); }
+
     if (e.target.dataset.p) { prices[e.target.dataset.p] = Number(e.target.value) || 0; savePrices(); update(); }
   });
 }
@@ -561,7 +593,7 @@ function getLines(){
         short: `${it.name}${a ? " 約$" + a : ""}`, item: `${it.name}${a ? " 約$" + a : ""}`,
         text: `【${sec.cat}】${it.name}${a ? " 約$" + a : ""}`, sub: null });
     } else if (it.type === "piece") {
-      const k = `${si}-${ii}-pc`, q = qty[k], p = pcPrice[k] || 0;
+      const k = `${si}-${ii}-pc`, q = qty[k], p = pcPrice[k] || prices[k] || 0;
       if (q > 0) lines.push({ cat: sec.cat, nm: it.name, kind: "piece", q, weigh: true, est: p ? p * q : null, short: `${it.name}×${q}塊`, item: `${it.name} × ${q} 塊`,
         text: `【${sec.cat}】${it.name} × ${q} 塊${p ? "　一塊約$" + p : ""}`, sub: null });
     } else {
@@ -1307,7 +1339,7 @@ function fillForm(o){
   // 畫面
   document.querySelectorAll("#menu .stepper").forEach(st => { const k = st.id.slice(2); st.querySelector(".q").textContent = qty[k] || 0; st.classList.toggle("on", (qty[k] || 0) > 0); });
   paintPrices();
-  document.querySelectorAll("#menu [data-pcp]").forEach(i => i.value = pcPrice[i.dataset.pcp] || "");
+
   document.querySelectorAll("#menu [data-amt]").forEach(i => i.value = amounts[i.dataset.amt] || "");
   document.querySelectorAll("#menu [data-want]").forEach(b => b.classList.toggle("on", !!want[b.dataset.want]));
   market = o.market || ""; document.querySelectorAll("#marketSeg button").forEach(x => x.classList.toggle("on", x.dataset.m === market)); paintMarket();

@@ -309,6 +309,17 @@
   .state.warn{background:#FBF1DE;color:#8A5A00}
   @media (max-width:430px){ .sync-pill{font-size:0;gap:0;padding:0 12px} }
   .seg.tabs{margin-top:10px}
+  /* 對齊：每列一行、同樣高度 */
+  .it.one{min-height:56px;padding:4px 0}
+  .it.one .it-main{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px}
+  .it.one .it-name{font-size:16px;font-weight:500;white-space:nowrap;min-width:4.6em}
+  .it.one .spec-s{font-size:15px;color:var(--sub);white-space:nowrap}
+  .grp.g1{border-top:1px solid var(--hair);padding-top:0}
+  .grp.g1 .it{padding-left:0;border-top:none}
+  .grp.g1 .it.sub{border-top:1px dashed var(--hair)}
+  .card > .grp.g1:first-child{border-top:none}
+  .qbox .unit{min-width:20px;text-align:left}
+  .seg.lvl{width:154px} .seg.lvl.l3{width:180px}
   .seg.tabs .tab-n{font-weight:700;margin-left:2px}
   .mk-warn{margin:10px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:15px;font-weight:500;text-align:center}
   #mkSeg.need{box-shadow:0 0 0 2px #E2A33B}
@@ -422,7 +433,8 @@ function render(){
         <svg class="ic chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
         <section class="card${shut ? " folded" : ""}" data-card="${escapeHtml(cat)}">`;
     }
-    if (r.multi) { if (grp !== r.grp) { close(); grp = r.grp; html += `<div class="grp"><div class="grp-name">${escapeHtml(r.grp)}</div>`; } }
+    const first = r.multi && grp !== r.grp;
+    if (r.multi) { if (first) { close(); grp = r.grp; html += `<div class="grp g1">`; } }
     else close();
     const ctrl = r.kind === "lvl"
       ? `<div class="seg small lvl${r.levels.length > 2 ? " l3" : ""}" id="b${i}">${r.levels.map(([v, t]) => `<button type="button" data-i="${i}" data-lv="${v}">${t}</button>`).join("")}</div>`
@@ -430,9 +442,10 @@ function render(){
       ? `<div class="wbox" id="b${i}"><input type="number" inputmode="decimal" step="0.1" min="0" data-i="${i}" placeholder="0" aria-label="${escapeHtml(r.name)}剩幾斤"><span class="unit">${r.unit}</span></div>`
       : `<div class="qbox" id="b${i}"><input type="number" inputmode="numeric" pattern="[0-9]*" min="0" data-i="${i}" placeholder="0"
           aria-label="${escapeHtml(r.name + (r.spec || ""))}${r.bring ? "要帶幾" : "剩幾"}${r.unit}"><span class="unit">${r.unit}</span></div>`;
-    const title = r.multi ? `<div class="it-sub"><span class="spec">${r.cnt ? "幾" : ""}${escapeHtml(r.spec)}</span></div>` : r.kind === "lvl" ? `<div class="it-name">${escapeHtml(r.name)}</div><div class="it-sub">剩多少</div>`
-      : `<div class="it-name">${escapeHtml(r.name)}</div>${r.unit ? `<div class="it-sub">${r.kind === "w" ? "秤重" : (r.spec ? escapeHtml(r.spec) : "") || (r.bring ? "要帶幾" : "幾") + r.unit}</div>` : ""}`;
-    html += `<div class="it"><div class="it-main">${title}</div>${ctrl}</div>`;
+    // 一行：品名｜份量（固定兩欄，和訂購頁一樣對齊）
+    const spec = r.bring ? `要帶幾${r.unit}` : r.multi ? (r.cnt ? "幾" : "") + r.spec : r.kind === "w" ? "秤重" : r.kind === "lvl" ? "" : (r.spec || "").replace(/（.*?）/, "");
+    html += `<div class="it one${r.multi && !first ? " sub" : ""}"><div class="it-main"><span class="it-name">${r.multi && !first ? "" : escapeHtml(r.name)}</span>
+      <span class="spec-s">${escapeHtml(spec)}</span></div>${ctrl}</div>`;
   });
   close(); html += "</section>";
   $("list").innerHTML = html;
