@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="剩貨">
 <meta name="format-detection" content="telephone=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>剩貨紀錄</title>
 <style>
@@ -308,6 +308,8 @@
   .state{padding:10px 12px;border-radius:12px;font-size:15px;margin:0 0 12px;line-height:1.5}
   .state.warn{background:#FBF1DE;color:#8A5A00}
   @media (max-width:430px){ .sync-pill{font-size:0;gap:0;padding:0 12px} }
+  .seg.tabs{margin-top:10px}
+  .seg.tabs .tab-n{font-weight:700;margin-left:2px}
   .mk-warn{margin:10px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:15px;font-weight:500;text-align:center}
   #mkSeg.need{box-shadow:0 0 0 2px #E2A33B}
   .mk-tag{color:var(--soy);font-weight:600}
@@ -348,6 +350,10 @@
     <button type="button" data-m="ba">爸爸市場</button>
     <button type="button" data-m="ma">媽媽市場</button>
   </div>
+  <div class="seg tabs" id="tabSeg" role="tablist">
+    <button type="button" data-tab="left" role="tab">剩貨<span class="tab-n" id="tabLeftN"></span></button>
+    <button type="button" data-tab="bring" role="tab">要帶的備品<span class="tab-n" id="tabBringN"></span></button>
+  </div>
   <div class="mk-warn" id="mkWarn">請先選擇市場，再開始填寫</div>
   <div id="list"></div>
   <h2 class="sec">備註</h2>
@@ -364,57 +370,9 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
+<script src="shared.js?v=1"></script>
 <script>
-/* 線條 icon */
-const ICON = (() => {
-  const svg = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
-  return {
-    plus:  svg('<path d="M12 5v14M5 12h14"/>'),
-    minus: svg('<path d="M5 12h14"/>'),
-    share: svg('<path d="M12 3v12M7.5 7.5L12 3l4.5 4.5"/><path d="M5 12v6.5A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V12"/>'),
-    copy:  svg('<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/>'),
-    scale: svg('<path d="M12 4v16M7 20h10M5 8h14M5 8l-3 6a3 3 0 0 0 6 0zM19 8l-3 6a3 3 0 0 0 6 0z"/>'),
-    check: svg('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>'),
-    download: svg('<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 15v3.5A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V15"/>'),
-    list:  svg('<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>'),
-  };
-})();
 
-const MENU = [
-  { cat: "煙燻", items: [
-    { name: "雞肉",   opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }] },
-    { name: "鴨肉",   opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }, { label: "前半", price: 0 }, { label: "後半", price: 0 }] },
-    { name: "鴨頭",   opts: [{ label: "一支", price: 0 }] },
-    { name: "鴨翅",   opts: [{ label: "一支", price: 0 }] },
-    { name: "豬頭皮", type: "amount" },                 // 客人自填要買多少錢
-    { name: "腱子肉", type: "piece" },                  // 秤重：一塊多少錢 × 幾塊
-    { name: "魚板",   opts: [{ label: "一個", price: 0 }] },
-    { name: "鳥蛋",   opts: [{ label: "一份（4個）", price: 0 }] },
-    { name: "甜不辣", opts: [{ label: "一份（4個）", price: 0 }] },
-    { name: "雞脖",   opts: [{ label: "一個", price: 0 }] },
-    { name: "雞腳",   opts: [{ label: "一包", price: 0 }] },
-    { name: "雞腿",   opts: [{ label: "一支", price: 0 }] },
-    { name: "豬舌頭", opts: [{ label: "一顆", price: 0 }, { label: "半顆", price: 0 }] },
-    { name: "豬心",   opts: [{ label: "一顆", price: 0 }, { label: "半顆", price: 0 }] },
-    { name: "鴨心",   opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨舌",   opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨胗",   opts: [{ label: "一個", price: 0 }] },
-  ]},
-  { cat: "滷味", items: [
-    { name: "米血",     opts: [{ label: "一片", price: 0 }] },
-    { name: "豆乾",     opts: [{ label: "一個", price: 0 }] },
-    { name: "海帶",     opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨胗",     opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨腸",     type: "amount" },               // 秤重：要買多少錢
-    { name: "口香糖",   type: "amount" },
-    { name: "大腸",     type: "amount" },
-    { name: "百頁豆腐", opts: [{ label: "一個", price: 0 }] },
-    { name: "豆包",     opts: [{ label: "一個", price: 0 }] },
-    { name: "麵腸",     opts: [{ label: "一個", price: 0 }] },
-    { name: "滷蛋",     opts: [{ label: "一個", price: 0 }] },
-    { name: "雞肝",     opts: [{ label: "一個", price: 0 }] },
-  ]},
-];
 
 /* 備品（單位可以改這裡） */
 const SUPPLIES = [
@@ -430,15 +388,6 @@ const COUNT_PARTS = { "豬頭皮": ["塊", "條", "件"] };   // 分開記幾塊
 
 /* 要記的格子：key 用「品名|規格」，以後調整菜單也不會亂掉 */
 const ROWS = [];
-/* 排列：同一個字開頭的放在一起；不同開頭的群組依字數由短到長，同群組內也依字數 */
-function sortNames(arr, name){
-  const g = {};
-  arr.forEach((x, i) => { const n = name(x), f = n[0]; if (!g[f]) g[f] = { min: n.length, first: i }; else g[f].min = Math.min(g[f].min, n.length); });
-  return arr.map((x, i) => [x, i]).sort((a, b) => {
-    const na = name(a[0]), nb = name(b[0]), ga = g[na[0]], gb = g[nb[0]];
-    return ga.min - gb.min || ga.first - gb.first || na.length - nb.length || a[1] - b[1];
-  });
-}
 const byLen = arr => sortNames(arr, x => x.name).map(x => x[0]);
 MENU.forEach(sec => byLen(sec.items).forEach(it => {
   if (LEVEL_ITEMS[it.name]) ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|量`, name: it.name, kind: "lvl", unit: "", levels: LEVEL_ITEMS[it.name] });
@@ -456,9 +405,6 @@ const CAT_LABEL = { "備品": "要帶的備品" };   // 備品是要帶去攤位
 const catLabel = c => CAT_LABEL[c] || c;
 
 const $ = id => document.getElementById(id);
-function escapeHtml(s){ return String(s ?? "").replace(/[&<>"'`]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[c])); }
-const WK = "日一二三四五六";
-const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const fmtDate = s => { const [y, m, d] = s.split("-").map(Number); return `${m}/${d}(${WK[new Date(y, m - 1, d).getDay()]})`; };
 let toastTimer;
 function toast(msg, err){ const t = $("toast"); t.textContent = msg; t.classList.toggle("err", !!err); t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), err ? 4000 : 2400); }
@@ -490,7 +436,24 @@ function render(){
   });
   close(); html += "</section>";
   $("list").innerHTML = html;
+  applyTab();
 }
+
+/* ===== 分頁：剩貨／要帶的備品 ===== */
+let tab = (() => { try { return localStorage.getItem("stockTab") === "bring" ? "bring" : "left"; } catch (e) { return "left"; } })();
+function applyTab(){
+  document.querySelectorAll("#tabSeg button").forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
+  document.querySelectorAll("#list .sec-t, #list [data-card]").forEach(el => {
+    const isBring = (el.dataset.cat || el.dataset.card) === "備品";
+    el.hidden = tab === "bring" ? !isBring : isBring;
+  });
+}
+$("tabSeg").addEventListener("click", e => {
+  const b = e.target.closest("button[data-tab]"); if (!b) return;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  tab = b.dataset.tab; try { localStorage.setItem("stockTab", tab); } catch (x) {}
+  applyTab(); window.scrollTo({ top: 0, behavior: "smooth" });
+});
 
 /* ===== 收合（記在這支手機） ===== */
 function folded(){ try { return JSON.parse(localStorage.getItem("stockFold") || "[]"); } catch (e) { return []; } }
@@ -560,6 +523,7 @@ function paintCounts(rec){
   const left = ROWS.filter(r => !r.bring && rec.v[r.key] > 0).length, bring = ROWS.filter(r => r.bring && rec.v[r.key] > 0).length;
   $("cnt").textContent = left;
   $("bring").textContent = bring ? `・要帶 ${bring} 項` : "";
+  $("tabLeftN").textContent = left ? ` ${left}` : ""; $("tabBringN").textContent = bring ? ` ${bring}` : "";
 }
 let saveTimer = null;
 function setVal(i, v){
@@ -700,7 +664,6 @@ function askConfirm(title, msg, ok){
 }
 
 /* ===== 同步（和訂購頁同一組店家密碼；資料加密後才上傳） ===== */
-const FB = { apiKey: "AIzaSyCpzgphKvbKT77QNIsdj4r43VwF-6dAp1o", projectId: "smoked-order" };
 const FS = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents`;
 const CFG = "stockSync";
 const te = new TextEncoder(), td = new TextDecoder();

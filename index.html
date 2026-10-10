@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="訂購">
 <meta name="format-detection" content="telephone=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>煙燻滷味訂購</title>
 <style>
@@ -207,6 +207,40 @@
   .mk-pick{display:grid;grid-template-columns:1fr;gap:8px}
   .mk-pick .btn{min-height:52px;font-size:17px}
   @media (max-width:430px){ .sync-pill{font-size:0;gap:0;padding:0 12px} }   /* 窄螢幕只留同步圓點 */
+  /* 精簡版面 */
+  .it.one{min-height:50px!important;padding:3px 0!important}
+  .grp.g1{padding-top:0}
+  .grp.g1 .it{padding-left:0}
+  .grp.g1 .it.sub{border-top:1px dashed var(--hair)}
+  .it.one .it-name:empty{display:inline-block;width:2em}
+  .spec-m{font-size:15px;color:var(--ink)}
+  .grp.g1 .it.picked{padding-left:14px}
+  .sec{margin:14px 4px 6px}
+  .line.dt input[type=time]{flex:none;width:124px;text-align:right}
+  .line.dt .field-btn .ic{display:none}
+  @media (max-width:360px){ .line.dt{flex-wrap:wrap} .line.dt input[type=time]{width:calc(100% - 64px);margin-left:64px;text-align:left} }
+  .line.dt .field-btn{min-width:0}
+
+  .it.one .it-main{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .it.one .it-name.spec{font-weight:400;font-size:15px}
+  .spec-s{font-size:13px;color:var(--sub)}
+  .pr{font-size:13px;color:var(--sub);font-variant-numeric:tabular-nums;min-height:32px;padding:0 4px;margin:-6px 0;border-radius:6px}
+  .pr:active{background:var(--fill)}
+  .pr.none{color:#C4A16A}
+  .menu-head{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+  .menu-head .sec{margin-bottom:0}
+  .sec-t{width:100%;display:flex;align-items:center;gap:8px;min-height:48px;margin:10px 0 4px;padding:0 4px;font-size:16px;font-weight:600;color:var(--ink);text-align:left}
+  .sec-t .sec-n{flex:1;font-size:13px;font-weight:500;color:var(--soy)}
+  .sec-t .chev{color:var(--sub);transition:transform .15s}
+  .sec-t.shut .chev{transform:rotate(-90deg)}
+  .card.folded{display:none}
+  .sum-row{width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;font-size:15px;color:var(--ink)}
+  .sum-row .sum-edit{flex:none;display:inline-flex;align-items:center;gap:2px;font-size:14px;color:var(--soy)}
+  .sum-row.open .chev{transform:rotate(180deg)}
+  .sum-row:active{opacity:.6}
+  #optBody{border-top:1px solid var(--hair)}
+  .ps-spec{margin-left:6px;font-size:13px;color:var(--sub)}
+  .line.memo textarea{padding:12px 0;min-height:44px}
   /* UX 調整 */
   .it.picked{background:var(--soy-tint);margin:0 -14px;padding-left:14px;padding-right:14px;box-shadow:inset 4px 0 0 var(--soy)}
   .grp .it.picked{padding-left:26px}
@@ -318,14 +352,13 @@
       <button type="button" data-m="媽媽市場">媽媽市場</button>
       <button type="button" data-m="早市">早市</button>
     </div></div>
-    <div class="line">
+    <div class="line dt">
       <span class="lbl">日期</span>
       <input type="hidden" id="pdate">
       <button type="button" class="field-btn date-field" id="dateBtn"><span id="dateLabel">選擇日期</span><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button>
-    </div>
+      <input type="time" id="ptime" aria-label="取貨時間"></div>
     <div class="chips" id="dateChips"></div>
     <div class="err" id="dateErr">請選擇取貨日期</div>
-    <div class="line"><label class="lbl" for="ptime">時間</label><input type="time" id="ptime"></div>
   </section>
 
   <h2 class="sec">客人</h2>
@@ -339,10 +372,14 @@
     <div class="line"><label class="lbl" for="phone">電話</label>
       <input type="text" id="phone" placeholder="0912345678" inputmode="tel" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false"></div>
     <div class="err" id="phoneErr">請填寫手機號碼，09 開頭共 10 碼</div>
+    <div class="line memo"><label class="lbl" for="memo">備註</label><textarea id="memo" rows="1" placeholder="切法、其他交代"></textarea></div>
   </section>
 
-  <h2 class="sec">付款</h2>
+  <h2 class="sec">處理與付款</h2>
   <section class="card">
+    <button type="button" class="sum-row" id="optSum" aria-expanded="false" aria-controls="optBody">
+      <span id="optText"></span><span class="sum-edit">修改 <svg class="ic chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></button>
+    <div id="optBody" hidden>
     <div class="block"><div class="seg" id="paySeg">
       <button type="button" data-pay="none" class="on">未付款</button>
       <button type="button" data-pay="deposit">付訂金</button>
@@ -352,10 +389,6 @@
       <div class="line"><label class="lbl" for="deposit">訂金</label>
         <input type="number" id="deposit" min="0" inputmode="numeric" placeholder="金額"><span class="owe" id="owe"></span></div>
     </div>
-  </section>
-
-  <h2 class="sec">處理方式</h2>
-  <section class="card">
     <div class="line"><span class="lbl" style="width:auto;flex:1">切</span>
       <div class="seg small" data-group="cut"><button type="button" data-v="要切" class="on">要切</button><button type="button" data-v="不切">不切</button></div></div>
     <div class="line"><span class="lbl" style="width:auto;flex:1">胡椒</span>
@@ -364,12 +397,12 @@
       <div class="seg small" data-group="oil"><button type="button" data-v="要" class="on">要</button><button type="button" data-v="不要">不要</button></div></div>
     <div class="line"><span class="lbl" style="width:auto;flex:1">醬油膏</span>
       <div class="seg small" data-group="sauce"><button type="button" data-v="要" class="on">要</button><button type="button" data-v="不要">不要</button></div></div>
-    <div class="line memo"><label class="lbl" for="memo">備註</label><textarea id="memo" rows="2" placeholder="切法、其他交代"></textarea></div>
+    </div>
   </section>
 
   <div class="err box" id="itemsErr">請至少選一個品項</div>
   <div id="menu"></div>
-  <div class="actions" style="margin-top:20px"><a class="btn ghost" href="stock.html" style="flex:1;text-decoration:none">每日剩貨紀錄</a></div>
+  <div class="actions" style="margin-top:20px"><button type="button" class="btn ghost" id="priceBtn">單價設定</button><a class="btn ghost" href="stock.html" style="flex:1;text-decoration:none">每日剩貨紀錄</a></div>
 </main>
 
 <div class="bar"><div class="bar-in">
@@ -381,63 +414,9 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
+<script src="shared.js?v=1"></script>
 <script>
-/* 線條 icon */
-const ICON = (() => {
-  const svg = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
-  return {
-    plus:  svg('<path d="M12 5v14M5 12h14"/>'),
-    minus: svg('<path d="M5 12h14"/>'),
-    share: svg('<path d="M12 3v12M7.5 7.5L12 3l4.5 4.5"/><path d="M5 12v6.5A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V12"/>'),
-    copy:  svg('<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/>'),
-    scale: svg('<path d="M12 4v16M7 20h10M5 8h14M5 8l-3 6a3 3 0 0 0 6 0zM19 8l-3 6a3 3 0 0 0 6 0z"/>'),
-    check: svg('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>'),
-    download: svg('<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 15v3.5A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V15"/>'),
-    edit:  svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
-    list:  svg('<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>'),
-  };
-})();
 
-/* =====================================================
-   品項清單
-   單價直接在網頁上打，會自動記住（同一台裝置下次打開還在）
-   price 是預設值，可留 0
-   ===================================================== */
-const MENU = [
-  { cat: "煙燻", items: [
-    { name: "雞肉",   opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }] },
-    { name: "鴨肉",   opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }, { label: "前半", price: 0 }, { label: "後半", price: 0 }] },
-    { name: "鴨頭",   opts: [{ label: "一支", price: 0 }] },
-    { name: "鴨翅",   opts: [{ label: "一支", price: 0 }] },
-    { name: "豬頭皮", type: "amount" },                 // 客人自填要買多少錢
-    { name: "腱子肉", type: "piece" },                  // 秤重：一塊多少錢 × 幾塊
-    { name: "魚板",   opts: [{ label: "一個", price: 0 }] },
-    { name: "鳥蛋",   opts: [{ label: "一份（4個）", price: 0 }] },
-    { name: "甜不辣", opts: [{ label: "一份（4個）", price: 0 }] },
-    { name: "雞脖",   opts: [{ label: "一個", price: 0 }] },
-    { name: "豬舌頭", opts: [{ label: "一顆", price: 0 }, { label: "半顆", price: 0 }] },
-    { name: "豬心",   opts: [{ label: "一顆", price: 0 }, { label: "半顆", price: 0 }] },
-    { name: "鴨心",   opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨舌",   opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨胗",   opts: [{ label: "一個", price: 0 }] },
-    { name: "雞腳",   type: "money" },                  // 客人說要買多少錢（不用秤重）
-    { name: "雞腿",   opts: [{ label: "一支", price: 0 }] },
-  ]},
-  { cat: "滷味", items: [
-    { name: "米血",     opts: [{ label: "一片", price: 0 }] },
-    { name: "豆乾",     opts: [{ label: "一個", price: 0 }] },
-    { name: "海帶",     opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨胗",     opts: [{ label: "一個", price: 0 }] },
-    { name: "鴨腸",     type: "amount" },               // 秤重：要買多少錢
-    { name: "口香糖",   type: "amount" },
-    { name: "大腸",     type: "amount" },
-    { name: "百頁豆腐", opts: [{ label: "一個", price: 0 }] },
-    { name: "豆包",     opts: [{ label: "一個", price: 0 }] },
-    { name: "麵腸",     opts: [{ label: "一個", price: 0 }] },
-    { name: "滷蛋",     opts: [{ label: "一個", price: 0 }] },
-    { name: "雞肝",     opts: [{ label: "一個", price: 0 }] },
-  ]},
-];
 
 const qty = {};      // key -> 數量
 const amounts = {};  // key -> 金額（豬頭皮）
@@ -448,17 +427,40 @@ let savedPrices = {};
 try { savedPrices = JSON.parse(localStorage.getItem("prices") || "{}"); } catch (e) {}
 function savePrices(){ try { localStorage.setItem("prices", JSON.stringify(prices)); } catch (e) {} }
 
-/* 排列：同一個字開頭的放在一起；不同開頭的群組依字數由短到長，同群組內也依字數 */
-function sortNames(arr, name){
-  const g = {};
-  arr.forEach((x, i) => { const n = name(x), f = n[0]; if (!g[f]) g[f] = { min: n.length, first: i }; else g[f].min = Math.min(g[f].min, n.length); });
-  return arr.map((x, i) => [x, i]).sort((a, b) => {
-    const na = name(a[0]), nb = name(b[0]), ga = g[na[0]], gb = g[nb[0]];
-    return ga.min - gb.min || ga.first - gb.first || na.length - nb.length || a[1] - b[1];
-  });
-}
 /* 顯示順序（資料仍用原本的位置，記住的單價不受影響） */
 function byLen(items){ return sortNames(items, it => it.name); }
+
+/* 收合狀態（記在這支手機） */
+function folded(){ try { return JSON.parse(localStorage.getItem("orderFold") || "[]"); } catch (e) { return []; } }
+/* 品項列上的小字單價 */
+function paintPrices(){
+  document.querySelectorAll("#menu [data-pr]").forEach(el => { const v = prices[el.dataset.pr]; el.textContent = v ? `$${v}` : "未設價"; el.classList.toggle("none", !v); });
+}
+/* 單價設定：集中在這裡改，品項列就只剩一行 */
+function showPrices(focusKey){
+  let html = `<h3>單價設定</h3><p class="note">改了會自動記住（這支手機），之後接單直接用。</p>`;
+  MENU.forEach((sec, si) => {
+    const rows = [];
+    byLen(sec.items).forEach(([it, ii]) => {
+      if (!it.opts) return;
+      it.opts.forEach((o, oi) => {
+        const k = `${si}-${ii}-${oi}`;
+        rows.push(`<div class="row" style="align-items:center"><span style="color:var(--ink)">${escapeHtml(it.name)}<small class="ps-spec">${escapeHtml(o.label)}</small></span>
+          <label class="pin">$<input type="number" min="0" inputmode="numeric" data-ps="${k}" value="${prices[k] || ""}" placeholder="單價"></label></div>`);
+      });
+    });
+    if (rows.length) html += `<p class="prep-cat">${escapeHtml(sec.cat)}</p><div class="rows">${rows.join("")}</div>`;
+  });
+  html += `<div class="actions"><button type="button" class="btn" id="psDone">完成</button></div>`;
+  sheet.dataset.view = ""; sheet.dataset.sub = "prices";
+  sheet.innerHTML = html; modal.classList.add("show"); sheet.scrollTop = 0;
+  sheet.querySelectorAll("[data-ps]").forEach(inp => inp.addEventListener("input", () => {
+    prices[inp.dataset.ps] = Number(inp.value) || 0; savePrices(); paintPrices(); update();
+  }));
+  const f = focusKey && sheet.querySelector(`[data-ps="${focusKey}"]`);
+  if (f) setTimeout(() => { f.scrollIntoView({ block: "center" }); f.focus(); }, 80);
+  document.getElementById("psDone").onclick = () => { if (document.activeElement.blur) document.activeElement.blur(); modal.classList.remove("show"); };
+}
 
 function render(){
   const menu = document.getElementById("menu");
@@ -469,28 +471,29 @@ function render(){
   const priceIn = (attr, key, val, ph) =>
     `<label class="pin">$<input type="number" min="0" inputmode="numeric" ${attr}="${key}" value="${val || ""}" placeholder="${ph}"></label>`;
   MENU.forEach((sec, si) => {
-    const h = document.createElement("h2");
-    h.className = "sec";
-    h.innerHTML = `${sec.cat}<span>${sec.items.length} 項</span>`;
+    const shut = folded().includes(sec.cat);
+    const h = document.createElement("button");
+    h.type = "button"; h.className = "sec-t" + (shut ? " shut" : ""); h.dataset.cat = sec.cat; h.setAttribute("aria-expanded", !shut);
+    h.innerHTML = `<span>${sec.cat}</span><span class="sec-n" data-n="${sec.cat}"></span>${ICON.chev}`;
     menu.appendChild(h);
     const card = document.createElement("section");
-    card.className = "card";
+    card.className = "card" + (shut ? " folded" : ""); card.dataset.card = sec.cat;
     let html = "";
     byLen(sec.items).forEach(([it, ii]) => {
       if (it.type === "money") {
         const key = `${si}-${ii}-amt`;
-        html += `<div class="it"><div class="it-main"><div class="it-name">${it.name}</div>
+        html += `<div class="it" data-item="${it.name}"><div class="it-main"><div class="it-name">${it.name}</div>
           <div class="it-sub">要買 ${priceIn("data-amt", key, "", "金額")}</div></div>
           <button type="button" class="want" data-want="${key}" aria-label="${it.name}要不要"></button></div>`;
       } else if (it.type === "amount") {
         const key = `${si}-${ii}-amt`;
-        html += `<div class="it"><div class="it-main"><div class="it-name">${it.name}</div>
+        html += `<div class="it" data-item="${it.name}"><div class="it-main"><div class="it-name">${it.name}</div>
           <div class="it-sub">約 ${priceIn("data-amt", key, "", "金額")}<span class="wtag">秤重</span></div></div>
           <button type="button" class="want" data-want="${key}" aria-label="${it.name}要不要"></button></div>`;
       } else if (it.type === "piece") {
         const key = `${si}-${ii}-pc`;
         qty[key] = 0;
-        html += `<div class="it"><div class="it-main"><div class="it-name">${it.name}</div>
+        html += `<div class="it" data-item="${it.name}"><div class="it-main"><div class="it-name">${it.name}</div>
           <div class="it-sub">一塊約 ${priceIn("data-pcp", key, "", "可不填")}<span class="wtag">按塊・秤重</span></div></div>
           ${stepper(key)}</div>`;
       } else {
@@ -499,18 +502,27 @@ function render(){
           qty[key] = 0;
           const saved = savedPrices[key];
           prices[key] = saved !== undefined ? saved : (o.price || 0);
-          const ph = it.unit ? "一" + it.unit + "多少" : "單價";
           const multi = it.opts.length > 1;
-          return `<div class="it"><div class="it-main">
-              ${multi ? "" : `<div class="it-name">${it.name}</div>`}
-              <div class="it-sub"><span class="spec">${o.label}</span>${priceIn("data-p", key, prices[key], ph)}</div></div>
+          return `<div class="it one${multi && oi ? " sub" : ""}" data-item="${it.name}"><div class="it-main">
+              <span class="it-name">${multi && oi ? "" : it.name}</span><span class="${multi ? "spec-m" : "spec-s"}">${o.label}</span>
+              <button type="button" class="pr" data-pr="${key}" aria-label="設定單價"></button></div>
             ${stepper(key)}</div>`;
         }).join("");
-        html += it.opts.length > 1 ? `<div class="grp"><div class="grp-name">${it.name}</div>${rows}</div>` : rows;
+        html += it.opts.length > 1 ? `<div class="grp g1">${rows}</div>` : rows;
       }
     });
     card.innerHTML = html;
     menu.appendChild(card);
+  });
+  paintPrices();
+  menu.addEventListener("click", e => {
+    if (e.target.closest(".pr")) { showPrices(e.target.closest(".pr").dataset.pr); return; }
+    const t = e.target.closest(".sec-t"); if (!t) return;
+    const cat = t.dataset.cat, f = new Set(folded()), shut = !f.has(cat);
+    shut ? f.add(cat) : f.delete(cat);
+    try { localStorage.setItem("orderFold", JSON.stringify([...f])); } catch (x) {}
+    t.classList.toggle("shut", shut); t.setAttribute("aria-expanded", !shut);
+    menu.querySelector(`[data-card="${CSS.escape(cat)}"]`).classList.toggle("folded", shut);
   });
 
   menu.addEventListener("click", e => {
@@ -565,7 +577,6 @@ function getLines(){
 }
 
 /* 防注入：任何要放進 HTML 的文字都先轉義 */
-function escapeHtml(s){ return String(s ?? "").replace(/[&<>"'`]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[c])); }
 
 /* 電話遮蔽：0912-***-678 */
 function maskPhone(p){
@@ -920,7 +931,6 @@ const Vault = {
 
 /* ===== 雲端同步（Firebase；訂單加密後才上傳，雲端只有亂碼） =====
    房間代號由店家密碼推算，沒有密碼找不到資料；只連到 Google Firebase，不連其他地方。 */
-const FB = { apiKey: "AIzaSyCpzgphKvbKT77QNIsdj4r43VwF-6dAp1o", projectId: "smoked-order" };
 const FS = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents`;
 const SYNC_KEY = "syncCfg";
 const Sync = {
@@ -1101,6 +1111,10 @@ function update(){
     row.classList.toggle("picked", !!((st && st.classList.contains("on")) || (w && w.classList.contains("on"))));
   });
   if (lines.length) showErr("itemsErr", false);
+  document.querySelectorAll("#menu [data-n]").forEach(el => {
+    const n = el.closest(".sec-t").nextElementSibling.querySelectorAll(".it.picked").length;
+    el.textContent = n ? `已選 ${n} 項` : "";
+  });
   document.getElementById("count").textContent = lines.length;
   document.getElementById("total").textContent = lines.reduce((s, l) => s + (l.sub || 0), 0);
   if (typeof updateOwe === "function" && document.getElementById("owe")) updateOwe();
@@ -1292,7 +1306,7 @@ function fillForm(o){
   }
   // 畫面
   document.querySelectorAll("#menu .stepper").forEach(st => { const k = st.id.slice(2); st.querySelector(".q").textContent = qty[k] || 0; st.classList.toggle("on", (qty[k] || 0) > 0); });
-  document.querySelectorAll("#menu [data-p]").forEach(i => i.value = prices[i.dataset.p] || "");
+  paintPrices();
   document.querySelectorAll("#menu [data-pcp]").forEach(i => i.value = pcPrice[i.dataset.pcp] || "");
   document.querySelectorAll("#menu [data-amt]").forEach(i => i.value = amounts[i.dataset.amt] || "");
   document.querySelectorAll("#menu [data-want]").forEach(b => b.classList.toggle("on", !!want[b.dataset.want]));
@@ -1310,6 +1324,7 @@ function fillForm(o){
     document.querySelectorAll(`.seg[data-group="${g}"] button`).forEach(x => x.classList.toggle("on", x.dataset.v === prep[g]));
   }
   $id("memo").value = o.memo || "";
+  paintOpt();
   ["nameErr", "phoneErr", "dateErr", "itemsErr"].forEach(id => showErr(id, false));
   update();
   editing = o.id;
@@ -1556,6 +1571,7 @@ function showPrep(){
   const cp = document.getElementById("prepCopy"); if (cp) cp.onclick = e => copyText(txt(), e.currentTarget);
 }
 
+document.getElementById("priceBtn").onclick = showPrices;
 document.getElementById("viewOrders").onclick = e => { e.preventDefault(); openOrders(); };
 
 Sync.paint(); Sync.run();
@@ -1564,8 +1580,6 @@ Sync.paint(); Sync.run();
 if (Vault.supported() && Vault.exists() && Vault.legacy().length) Vault.migrateLegacy().catch(() => {});
 
 /* ===== 取貨日期 ===== */
-const WK = "日一二三四五六";
-const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 function fmtDate(s){ if (!s) return ""; const [y, m, d] = s.split("-").map(Number); const dt = new Date(y, m - 1, d); return `${m}/${d}(${WK[dt.getDay()]})`; }
 const pdate = document.getElementById("pdate"), chipsBox = document.getElementById("dateChips");
 const dateBtn = document.getElementById("dateBtn"), dateLabel = document.getElementById("dateLabel");
@@ -1628,7 +1642,7 @@ function setDate(v){
   if (v) {
     const [y, m, d] = v.split("-").map(Number), info = dayInfo(new Date(y, m - 1, d));
     const tag = info.hol || info.wor;
-    dateLabel.textContent = `${y}/${m}/${d}（${WK[new Date(y, m - 1, d).getDay()]}）${info.lun ? " 農曆" + info.lun : ""}${tag ? "・" + tag : ""}`;
+    dateLabel.textContent = `${m}/${d}（${WK[new Date(y, m - 1, d).getDay()]}）${tag ? "・" + tag : ""}`;
   } else dateLabel.textContent = "選擇日期";
   dateBtn.classList.toggle("empty", !v);
   chipsBox.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
@@ -1687,7 +1701,18 @@ document.querySelectorAll(".seg[data-group]").forEach(seg => seg.addEventListene
   const b = e.target.closest("button"); if (!b) return;
   prep[seg.dataset.group] = b.dataset.v;
   seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  paintOpt();
 }));
+/* 處理與付款：平常收成一行，要改再點開 */
+function paintOpt(){
+  const p = pay === "full" ? "已付清" : pay === "deposit" ? `付訂金${Number(depInput.value) ? " $" + Number(depInput.value) : ""}` : "未付款";
+  document.getElementById("optText").textContent = `${prepText(prep)}・${p}`;
+}
+document.getElementById("optSum").onclick = () => {
+  const body = document.getElementById("optBody"), open = body.hidden;
+  body.hidden = !open; document.getElementById("optSum").setAttribute("aria-expanded", open);
+  document.getElementById("optSum").classList.toggle("open", open);
+};
 function prepText(p){
   if (!p) return "";
   const yes = [["pepper", "胡椒"], ["oil", "香油"], ["sauce", "醬油膏"]].filter(([k]) => p[k] === "要").map(x => x[1]);
@@ -1702,9 +1727,10 @@ document.getElementById("paySeg").addEventListener("click", e => {
   pay = b.dataset.pay;
   document.querySelectorAll("#paySeg button").forEach(x => x.classList.toggle("on", x === b));
   document.getElementById("depositBox").style.display = pay === "deposit" ? "block" : "none";
-  updateOwe();
+  updateOwe(); paintOpt();
 });
-depInput.addEventListener("input", updateOwe);
+depInput.addEventListener("input", () => { updateOwe(); paintOpt(); });
+setTimeout(paintOpt, 0);
 function currentTotal(){ return getLines().reduce((s, l) => s + (l.sub || 0), 0); }
 function updateOwe(){
   const dep = Number(depInput.value) || 0, tot = currentTotal();
