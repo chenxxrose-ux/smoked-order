@@ -292,6 +292,7 @@
   .sec-t.shut .chev{transform:rotate(-90deg)}
   .sec-t:active{opacity:.6}
   .card.folded{display:none}
+  .sum b small{font-size:14px;font-weight:500;color:var(--soy)}
   .wbox{flex:none;display:flex;align-items:center;gap:6px}
   .wbox input{width:84px;height:44px;border:none;border-radius:10px;background:var(--fill);font-size:17px;text-align:center;outline:none}
   .wbox input:focus{background:var(--soy-tint)}
@@ -329,7 +330,7 @@
 </main>
 
 <div class="bar"><div class="bar-in">
-  <div class="sum"><span class="sum-l" id="saveState">已自動儲存</span><b><span id="cnt">0</span> 項有剩</b></div>
+  <div class="sum"><span class="sum-l" id="saveState">已自動儲存</span><b><span id="cnt">0</span> 項有剩<small id="bring"></small></b></div>
   <button type="button" class="btn" id="shareBtn">分享剩貨</button>
 </div></div>
 
@@ -422,7 +423,9 @@ MENU.forEach(sec => byLen(sec.items).forEach(it => {
       kind: "n", unit: it.opts.length > 1 ? "" : (m ? m[1] : "") });
   });
 }));
-byLen(SUPPLIES.map(([n, u]) => ({ name: n, u }))).map(x => [x.name, x.u]).forEach(([n, u]) => ROWS.push({ cat: "備品", grp: n, key: `備品|${n}`, name: n, kind: "n", unit: u }));
+byLen(SUPPLIES.map(([n, u]) => ({ name: n, u }))).map(x => [x.name, x.u]).forEach(([n, u]) => ROWS.push({ cat: "備品", grp: n, key: `備品|${n}`, name: n, kind: "n", unit: u, bring: true }));
+const CAT_LABEL = { "備品": "要帶的備品" };   // 備品是要帶去攤位的，不是剩貨
+const catLabel = c => CAT_LABEL[c] || c;
 
 const $ = id => document.getElementById(id);
 function escapeHtml(s){ return String(s ?? "").replace(/[&<>"'`]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[c])); }
@@ -441,7 +444,7 @@ function render(){
       close(); if (cat) html += "</section>"; cat = r.cat;
       const shut = folded().includes(cat);
       html += `<button type="button" class="sec-t${shut ? " shut" : ""}" data-cat="${escapeHtml(cat)}" aria-expanded="${!shut}">
-        <span>${escapeHtml(cat)}</span><span class="sec-n" data-n="${escapeHtml(cat)}"></span>
+        <span>${escapeHtml(catLabel(cat))}</span><span class="sec-n" data-n="${escapeHtml(cat)}"></span>
         <svg class="ic chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
         <section class="card${shut ? " folded" : ""}" data-card="${escapeHtml(cat)}">`;
     }
@@ -452,9 +455,9 @@ function render(){
       : r.kind === "w"
       ? `<div class="wbox" id="b${i}"><input type="number" inputmode="decimal" step="0.1" min="0" data-i="${i}" placeholder="0" aria-label="${escapeHtml(r.name)}剩幾斤"><span class="unit">${r.unit}</span></div>`
       : `<div class="qbox" id="b${i}"><input type="number" inputmode="numeric" pattern="[0-9]*" min="0" data-i="${i}" placeholder="0"
-          aria-label="${escapeHtml(r.name + (r.spec || ""))}剩幾${r.unit}"><span class="unit">${r.unit}</span></div>`;
+          aria-label="${escapeHtml(r.name + (r.spec || ""))}${r.bring ? "要帶幾" : "剩幾"}${r.unit}"><span class="unit">${r.unit}</span></div>`;
     const title = r.multi ? `<div class="it-sub"><span class="spec">${r.cnt ? "幾" : ""}${escapeHtml(r.spec)}</span></div>` : r.kind === "lvl" ? `<div class="it-name">${escapeHtml(r.name)}</div><div class="it-sub">剩多少</div>`
-      : `<div class="it-name">${escapeHtml(r.name)}</div>${r.unit ? `<div class="it-sub">${r.kind === "w" ? "秤重" : (r.spec ? escapeHtml(r.spec) : "") || "幾" + r.unit}</div>` : ""}`;
+      : `<div class="it-name">${escapeHtml(r.name)}</div>${r.unit ? `<div class="it-sub">${r.kind === "w" ? "秤重" : (r.spec ? escapeHtml(r.spec) : "") || (r.bring ? "要帶幾" : "幾") + r.unit}</div>` : ""}`;
     html += `<div class="it"><div class="it-main">${title}</div>${ctrl}</div>`;
   });
   close(); html += "</section>";
@@ -490,7 +493,6 @@ function fill(){
     $("b" + i).classList.toggle("on", v > 0);
   });
   if (document.activeElement !== $("note")) $("note").value = rec.note || "";
-  $("cnt").textContent = Object.values(rec.v).filter(x => x > 0).length;
   paintCounts(rec);
   const [y, m, d] = date.split("-").map(Number), isToday = date === ymd(new Date());
   $("dLabel").innerHTML = `${fmtDate(date)}<small>${isToday ? "今天" : ""}${rec.upd ? (isToday ? "・" : "") + "最後更新 " + new Date(rec.upd).toTimeString().slice(0, 5) : ""}</small>`;
@@ -499,7 +501,10 @@ function fill(){
 function paintCounts(rec){
   const n = {};
   ROWS.forEach(r => { if (rec.v[r.key] > 0) n[r.cat] = (n[r.cat] || new Set()).add(r.grp); });
-  document.querySelectorAll("[data-n]").forEach(el => { const c = n[el.dataset.n]; el.textContent = c ? `${c.size} 項有剩` : ""; });
+  document.querySelectorAll("[data-n]").forEach(el => { const c = n[el.dataset.n]; el.textContent = c ? `${c.size} 項${el.dataset.n === "備品" ? "要帶" : "有剩"}` : ""; });
+  const left = ROWS.filter(r => !r.bring && rec.v[r.key] > 0).length, bring = ROWS.filter(r => r.bring && rec.v[r.key] > 0).length;
+  $("cnt").textContent = left;
+  $("bring").textContent = bring ? `・要帶 ${bring} 項` : "";
 }
 let saveTimer = null;
 function setVal(i, v){
@@ -517,7 +522,7 @@ $("list").addEventListener("click", e => {
   const i = Number(b.dataset.i), v = (cur().v[ROWS[i].key] || 0) + Number(b.dataset.d);
   setVal(i, Math.max(0, v)); fill();
 });
-$("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i === undefined) return; setVal(Number(i), e.target.value); $("b" + i).classList.toggle("on", Number(e.target.value) > 0); $("cnt").textContent = Object.values(cur().v).filter(x => x > 0).length; paintCounts(cur()); });
+$("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i === undefined) return; setVal(Number(i), e.target.value); $("b" + i).classList.toggle("on", Number(e.target.value) > 0); paintCounts(cur()); });
 $("list").addEventListener("focusout", () => fill());
 $("note").addEventListener("input", () => {
   const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 };
@@ -540,7 +545,7 @@ function stockText(){
     g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? `${r.spec} ${v}` : `${v}${r.unit ? " " + r.unit : ""}`);
   });
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
-  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n〔${cat}〕\n`; } t += `${g.grp}　${g.parts.join("、")}\n`; });
+  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n〔${catLabel(cat)}〕\n`; } t += `${g.grp}　${g.parts.join("、")}\n`; });
   if (rec.note) t += `\n備註：${rec.note}`;
   return t.trim();
 }
