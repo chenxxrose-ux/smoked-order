@@ -292,11 +292,13 @@
   .sec-t.shut .chev{transform:rotate(-90deg)}
   .sec-t:active{opacity:.6}
   .card.folded{display:none}
-  .row.hist{width:100%;text-align:left;align-items:center;background:none;font-size:15px;color:var(--ink)}
-  .row.hist small{color:var(--sub);font-size:13px}
-  .row.hist .ok{color:var(--soy);font-size:13px}
-  .row.hist .todo{color:#B26A00;font-size:13px}
-  .row.hist:active{background:var(--fill)}
+  .hist-row{align-items:center;gap:6px;padding:4px 0}
+  .hist{flex:1;min-width:0;display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:52px;text-align:left;font-size:15px;color:var(--ink);border-radius:8px}
+  .hist:active{background:var(--fill)}
+  .row .hist span:last-child{flex:none}
+  .hist small{color:var(--sub);font-size:13px}
+  .hist .ok{color:var(--soy);font-size:13px}
+  .hist .todo{color:#B26A00;font-size:13px}
   .mk-warn{margin:10px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:15px;font-weight:500;text-align:center}
   #mkSeg.need{box-shadow:0 0 0 2px #E2A33B}
   .mk-tag{color:var(--soy);font-weight:600}
@@ -405,7 +407,7 @@ const MENU = [
 /* 備品（單位可以改這裡） */
 const SUPPLIES = [
   ["兩斤袋子", "包"], ["一斤袋子", "包"], ["兩斤透明袋", "包"], ["半斤透明袋", "包"], ["四兩提袋", "包"], ["半斤提袋", "包"],
-  ["胡椒", "包"], ["香油", "罐"], ["辣粉", "罐"], ["便當盒", "個"],
+  ["胡椒", "包"], ["香油", "罐"], ["辣粉", "包"], ["便當盒", "個"],
 ];
 const MKT = { ba: "爸爸市場", ma: "媽媽市場" };
 const WEIGH_UNIT = "斤";
@@ -612,6 +614,13 @@ function afterShare(msg){
   mk = ""; date = ymd(new Date()); fill(); window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+/* 刪除一筆紀錄（雲端也刪；離線就先排隊） */
+function deleteRecord(id){
+  const a = all(); delete a[id]; saveAll(a);
+  if (Sync.on()) { const c = Sync.cfg(); c.dels = [...new Set([...(c.dels || []), id])]; Sync.saveCfg(c); Sync.run(); }
+  if (docId(date, mk) === id) fill();
+}
+
 /* 歷史紀錄（後台） */
 const modal = $("modal"), sheet = $("sheet");
 modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("show"); });
@@ -623,12 +632,18 @@ async function showHistory(){
     .filter(x => x && (Object.keys(x.r.v || {}).length || x.r.note)).sort((a, b) => b.d.localeCompare(a.d) || a.m.localeCompare(b.m));
   const cnt = (r, bring) => ROWS.filter(x => !!x.bring === bring && (r.v || {})[x.key] > 0).length;
   sheet.innerHTML = `<h3>剩貨紀錄</h3><p class="note">${Sync.on() ? "所有手機同步的紀錄" : "這支手機上的紀錄"}，點一下打開。</p>` +
-    (list.length ? `<div class="rows">${list.map(x => `<button type="button" class="row hist" data-d="${x.d}" data-m="${x.m}">
+    (list.length ? `<div class="rows">${list.map(x => `<div class="row hist-row"><button type="button" class="hist" data-d="${x.d}" data-m="${x.m}">
         <span><b>${fmtDate(x.d)}</b>　${MKT[x.m]}<br><small>剩 ${cnt(x.r, false)} 項${cnt(x.r, true) ? `・要帶 ${cnt(x.r, true)} 項` : ""}</small></span>
-        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? "已分享 " + new Date(x.r.shared).toTimeString().slice(0, 5) : "未分享"}</span></button>`).join("")}</div>`
+        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? "已分享 " + new Date(x.r.shared).toTimeString().slice(0, 5) : "未分享"}</span></button>
+        <button type="button" class="link-btn danger" data-del="${x.id}" aria-label="刪除 ${fmtDate(x.d)} ${MKT[x.m]}">刪除</button></div>`).join("")}</div>`
       : `<p class="note">還沒有紀錄。</p>`) +
     `<div class="actions"><button type="button" class="btn ghost" id="histClose">關閉</button></div>`;
   $("histClose").onclick = () => modal.classList.remove("show");
+  sheet.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.del, m = id.match(/^inv_(.+)_(ba|ma)$/);
+    if (!(await askConfirm(`刪除 ${fmtDate(m[1])} ${MKT[m[2]]} 的紀錄？`, Sync.on() ? "所有手機上的這筆紀錄都會刪除，無法復原。" : "刪除後無法復原。", "刪除"))) return;
+    deleteRecord(id); toast("已刪除"); showHistory();
+  });
   sheet.querySelectorAll(".hist").forEach(b => b.onclick = () => { date = b.dataset.d; modal.classList.remove("show"); setMarket(b.dataset.m); window.scrollTo({ top: 0 }); });
 }
 $("histBtn").onclick = showHistory;
@@ -700,11 +715,12 @@ const Sync = {
   /* 讀回所有日期的剩貨紀錄（給「紀錄」頁用） */
   async pullAll(){
     const room = this.cfg().room; let tok = "";
-    const b = all(); let changed = false;
+    const b = all(); let changed = false; const seen = new Set();
     do {
       const j = await this.api("GET", `/rooms/${room}/orders?pageSize=300` + (tok ? "&pageToken=" + encodeURIComponent(tok) : ""));
       for (const d of (j && j.documents) || []) {
-        const id = d.name.split("/").pop(); if (!/^inv_\d{4}-\d{2}-\d{2}_(ba|ma)$/.test(id)) continue;
+        const id = d.name.split("/").pop(); if (!/^inv_\d{4}-\d{2}-\d{2}_(ba|ma)$/.test(id) || (this.cfg().dels || []).includes(id)) continue;
+        seen.add(id);
         const loc = b[id], upd = Number(d.fields.upd && d.fields.upd.integerValue) || 0;
         if (loc && (loc.p || upd <= (loc.upd || 0))) continue;
         try {
@@ -716,6 +732,8 @@ const Sync = {
       }
       tok = j && j.nextPageToken;
     } while (tok);
+    // 其他手機刪掉的紀錄：雲端已經沒有、這支手機也沒有待上傳的修改 → 一起刪掉
+    for (const id of Object.keys(b)) if (/^inv_/.test(id) && !seen.has(id) && !b[id].p) { delete b[id]; changed = true; }
     if (changed) saveAll(b);
   },
   async pull(id){
@@ -730,11 +748,16 @@ const Sync = {
     if (!navigator.onLine) { this.state = "off"; this.paint(); return; }
     this.busy = true; this.state = "busy"; this.paint();
     try {
+      for (const id of this.cfg().dels || []) {
+        const r = await fetch(`${FS}/rooms/${this.cfg().room}/orders/${id}`, { method: "DELETE", headers: { Authorization: "Bearer " + (await this.token()) } });
+        if (!r.ok && r.status !== 404) throw new Error("http " + r.status);
+        const c = this.cfg(); c.dels = (c.dels || []).filter(x => x !== id); this.saveCfg(c);
+      }
       const a = all();
       for (const [id, rec] of Object.entries(a)) if (rec.p) { await this.push(id, rec); const b = all(); if (b[id] && b[id].upd === rec.upd) { delete b[id].p; saveAll(b); } }
       const id = docId(date, mk), remote = mk ? await this.pull(id) : null;
       const b = all(), loc = b[id];
-      if (remote && (!loc || (!loc.p && remote.upd > (loc.upd || 0)))) {
+      if (remote && !(this.cfg().dels || []).includes(id) && (!loc || (!loc.p && remote.upd > (loc.upd || 0)))) {
         b[id] = { v: Object.fromEntries(Object.entries(remote.v || {}).map(([k, v]) => [String(k).slice(0, 40), clean(v, "w")]).filter(([, v]) => v > 0)),
           note: String(remote.note || "").slice(0, 500), upd: Number(remote.upd) || 0, shared: Number(remote.shared) || 0 };
         saveAll(b); fill();
