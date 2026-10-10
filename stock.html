@@ -352,7 +352,7 @@
   <div id="list"></div>
   <h2 class="sec">備註</h2>
   <section class="card"><textarea class="note-in" id="note" rows="2" placeholder="其他要交代的"></textarea></section>
-  <div class="actions"><button type="button" class="btn ghost" id="clearDay">清空這天的紀錄</button></div>
+  <div class="actions"><button type="button" class="btn ghost" id="clearDay">清除重新填寫</button></div>
 </main>
 
 <div class="bar"><div class="bar-in">
@@ -551,6 +551,7 @@ function fill(){
   $("mkWarn").hidden = !!mk; $("mkSeg").classList.toggle("need", !mk);
   $("mkTag").textContent = mk ? MKT[mk] : "未選市場"; $("mkTag").classList.toggle("none", !mk);
   paintCtx();
+  $("clearDay").textContent = mk ? `清除「${MKT[mk]}」重新填寫` : "清除重新填寫";
 }
 function paintCounts(rec){
   const n = {};
@@ -683,7 +684,7 @@ $("histBtn").onclick = showHistory;
 
 $("clearDay").onclick = async () => {
   if (!mk) { await askMarket(); return; }
-  if (!(await askConfirm(`清空 ${fmtDate(date)} ${MKT[mk]} 的紀錄？`, "這天這個市場的剩貨數量都會清掉，其他手機也會同步清掉。", "清空"))) return;
+  if (!(await askConfirm(`清除 ${fmtDate(date)} ${MKT[mk]} 的內容？`, `只會清除 ${fmtDate(date)}「${MKT[mk]}」填的數字和備註。${MKT[mk === "ba" ? "ma" : "ba"]}和其他天都不受影響。`, "清除"))) return;
   const a = all(), id = docId(date, mk); a[id] = { v: {}, note: "", upd: Date.now(), p: 1 }; saveAll(a); fill(); Sync.run();
 };
 
