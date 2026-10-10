@@ -1,0 +1,235 @@
+rules_version = '2';
+
+// 煙燻滷味 訂購頁／剩貨頁 Firestore Security Rules（core 5）
+//
+// 資料結構（全部在 rooms/{room} 底下）
+//   rooms/{room}                 店家房間：retired／rts（密碼已更換、停用時間）、imported（舊資料已搬入）
+//   rooms/{room}/joins/{uid}     加入憑證 proof（只能由本人寫，任何人都不能讀）
+//   rooms/{room}/members/{uid}   已加入的裝置；revoked=true 代表已停用
+//   rooms/{room}/orders/_meta    訂單金鑰（私鑰已用店家密碼加密）
+//   rooms/{room}/orders/{id}     訂單（數字 id）與剩貨（inv_日期_市場），內容全部是加密亂碼
+//   rooms/{room}/revs/{rid}      歷史版本（加密），保留 30 天
+//   rooms/{room}/backups/{bid}   每日加密備份，保留 90 天，期間內任何人都不能修改或刪除
+//
+// 房間代號 room = SHA-256(加入憑證)，加入憑證 = PBKDF2(店家密碼)。
+// 規則會檢查「同一批寫入的加入憑證，雜湊後等於房間代號」，所以：
+//   - 只有知道店家密碼的裝置能建立房間或加入，伺服器上也只有雜湊；
+//   - 不知道密碼的人就算看過房間代號，也算不出憑證，無法搶先建立或加入。
+//
+// 原則
+//   1. 沒有登入（匿名登入）的請求一律拒絕；任何人都不能列出房間、不能跨店查詢。
+//   2. 只有成員（成員文件存在且沒被停用）能讀；房間沒停用時才能寫。
+//   3. 每次更新版本號 ver 必須 +1，舊版本不能覆蓋新版本。
+//   4. 不能直接刪除訂單／剩貨：只能標記刪除；伺服器時間超過 30 天後才能清除。
+//      更換密碼後的舊房間要停用 7 天後才能清除；備份一律保留 90 天。
+//   5. 舊版（core 4 以前）的房間沒有房間文件：只能讀、不能寫，讓升級的手機把資料搬到新房間；
+//      LEGACY_UNTIL 之後完全不能讀。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 舊版房間可以讀（搬資料用）到這個時間為止（2026-10-10 部署 + 60 天）。
+    function legacyUntil() { return timestamp.date(2026, 12, 9); }
+
+    function signedIn() { return request.auth != null && request.auth.uid is string; }
+    function roomPath(room) { return /databases/$(database)/documents/rooms/$(room); }
+    function memberPath(room, uid) { return /databases/$(database)/documents/rooms/$(room)/members/$(uid); }
+    function joinPath(room, uid) { return /databases/$(database)/documents/rooms/$(room)/joins/$(uid); }
+
+    function isMember(room) {
+      return signedIn()
+        && exists(memberPath(room, request.auth.uid))
+        && get(memberPath(room, request.auth.uid)).data.revoked == false;
+    }
+    function roomRetired(room) { return get(roomPath(room)).data.get('retired', false) == true; }
+    function active(room) { return isMember(room) && exists(roomPath(room)) && !roomRetired(room); }
+    // 同一批寫入建立房間＋加入＋金鑰時用：看寫入後的狀態（成員文件本身已經過 proofOK 檢查）
+    function activeAfter(room) {
+      return signedIn()
+        && existsAfter(memberPath(room, request.auth.uid))
+        && getAfter(memberPath(room, request.auth.uid)).data.revoked == false
+        && existsAfter(roomPath(room))
+        && getAfter(roomPath(room)).data.get('retired', false) == false;
+    }
+    // 停用超過 7 天（伺服器時間）的舊房間，成員才能清掉裡面的訂單與歷史版本；備份照樣保留 90 天
+    function purgeable(room) {
+      return isMember(room) && exists(roomPath(room)) && roomRetired(room)
+        && get(roomPath(room)).data.get('rts', request.time) < request.time - duration.value(7, 'd');
+    }
+
+    // 同一批寫入裡，本人的加入憑證雜湊後等於房間代號（= 知道店家密碼）
+    function proofOK(room) {
+      return existsAfter(joinPath(room, request.auth.uid))
+        && hashing.sha256(getAfter(joinPath(room, request.auth.uid)).data.proof).toHexString().lower() == room;
+    }
+    function legacyRoom(room) { return signedIn() && !exists(roomPath(room)) && request.time < legacyUntil(); }
+
+    function isInt(v) { return v is int; }
+    function smallStr(v, n) { return v is string && v.size() <= n; }
+
+    match /rooms/{room} {
+      allow get: if signedIn();
+      allow list, delete: if false;
+
+      // 建立房間：必須提出正確的加入憑證，而且同一批寫入讓自己成為成員
+      allow create: if signedIn()
+        && room.matches('^[0-9a-f]{64}$')
+        && request.resource.data.keys().hasOnly(['v', 'retired', 'created', 'prev', 'imported', 'ts'])
+        && request.resource.data.v == 2
+        && request.resource.data.retired == false
+        && request.resource.data.imported is bool
+        && isInt(request.resource.data.created)
+        && smallStr(request.resource.data.get('prev', ''), 64)
+        && request.resource.data.ts == request.time
+        && proofOK(room)
+        && existsAfter(memberPath(room, request.auth.uid));
+
+      // 成員可以：更換密碼後把舊房間停用（不能恢復）；或標記舊資料已經搬完
+      allow update: if active(room) && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['retired', 'retiredAt', 'rts'])
+            && request.resource.data.retired == true && isInt(request.resource.data.retiredAt)
+            && request.resource.data.rts == request.time)
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['imported'])
+            && request.resource.data.imported == true)
+        );
+
+      // 加入憑證：只能由本人寫入，任何人都不能讀
+      match /joins/{uid} {
+        allow create, update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['proof'])
+          && smallStr(request.resource.data.proof, 100);
+        allow read, delete: if false;
+      }
+
+      match /members/{uid} {
+        // 自己的成員文件永遠可以讀（用來知道自己有沒有被停用）；成員可以看所有裝置
+        allow get: if signedIn() && (request.auth.uid == uid || isMember(room));
+        allow list: if isMember(room);
+
+        // 加入：本人、房間存在且未停用、加入憑證正確
+        allow create: if signedIn() && request.auth.uid == uid
+          && existsAfter(roomPath(room))
+          && getAfter(roomPath(room)).data.get('retired', false) == false
+          && proofOK(room)
+          && request.resource.data.keys().hasOnly(['dev', 'name', 'joined', 'seen', 'revoked', 'ts'])
+          && smallStr(request.resource.data.dev, 40)
+          && smallStr(request.resource.data.name, 40)
+          && isInt(request.resource.data.joined)
+          && isInt(request.resource.data.seen)
+          && request.resource.data.revoked == false
+          && request.resource.data.ts == request.time;
+
+        // 本人更新「最後使用時間」或名稱；或其他成員把它停用（停用後不能恢復，要換新帳號重新加入）
+        allow update: if (
+            request.auth.uid == uid && isMember(room)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seen', 'name'])
+            && isInt(request.resource.data.seen)
+            && smallStr(request.resource.data.name, 40)
+          ) || (
+            isMember(room)
+            && resource.data.revoked == false
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked', 'revokedAt', 'revokedBy'])
+            && request.resource.data.revoked == true
+            && isInt(request.resource.data.revokedAt)
+            && request.resource.data.revokedBy == request.auth.uid
+          );
+        allow delete: if false;
+      }
+
+      match /orders/{id} {
+        function validId() {
+          return id.matches('^[0-9]{10,16}$') || id.matches('^inv_[0-9]{4}-[0-9]{2}-[0-9]{2}_(ba|ma)$');
+        }
+        function validDoc() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['iv', 'ct', 'upd', 'ver', 'del', 'dts', 'kid', 'by', 'ts'])
+            && smallStr(d.iv, 64)
+            && smallStr(d.ct, 400000)
+            && isInt(d.upd)
+            && isInt(d.ver)
+            && isInt(d.get('del', 0))
+            && smallStr(d.get('kid', ''), 64)
+            && d.by == request.auth.uid
+            && d.ts == request.time;
+        }
+        // 刪除時間用伺服器時間（dts），手機時間不準也不會提早被清除
+        function newDelOK() {
+          let d = request.resource.data;
+          return d.get('del', 0) == 0 || d.get('dts', null) == request.time;
+        }
+        function delOK() {
+          let d = request.resource.data;
+          return d.get('del', 0) == 0
+            || (resource.data.get('del', 0) == 0 && d.get('dts', null) == request.time)
+            || (resource.data.get('del', 0) > 0 && d.get('dts', null) == resource.data.get('dts', null));
+        }
+        function validMeta() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['iv', 'ct', 'upd'])
+            && d.iv == 'meta' && smallStr(d.ct, 20000) && isInt(d.upd);
+        }
+
+        // 成員可讀（房間停用後仍可讀，讓更換密碼的手機把資料搬走）；舊版房間在期限內唯讀
+        allow get, list: if isMember(room) || legacyRoom(room);
+
+        allow create: if (activeAfter(room) && id == '_meta' && validMeta()) || active(room) && (
+          (id == '_meta' && validMeta())
+          || (validId() && validDoc() && newDelOK() && request.resource.data.ver == 1)
+        );
+        // 版本號必須剛好 +1，避免後同步的舊資料蓋掉新資料
+        allow update: if active(room) && id != '_meta' && validId() && validDoc() && delOK()
+          && request.resource.data.ver == resource.data.get('ver', 0) + 1;
+
+        // 真正刪除：標記刪除後經過 30 天（伺服器時間）；或房間已停用（更換密碼後清掉舊房間）
+        allow delete: if (active(room) && id != '_meta'
+            && resource.data.get('del', 0) > 0
+            && resource.data.get('dts', request.time) < request.time - duration.value(30, 'd'))
+          || purgeable(room);
+      }
+
+      // 歷史版本：修改前的版本、衝突時另一支手機的版本。只能新增，不能修改；30 天後可以清掉
+      match /revs/{rid} {
+        allow read: if isMember(room);
+        allow create: if active(room)
+          && request.resource.data.keys().hasOnly(['of', 'iv', 'ct', 'upd', 'ver', 'del', 'kid', 'kind', 'dev', 'by', 'at', 'ts'])
+          && smallStr(request.resource.data.of, 40)
+          && smallStr(request.resource.data.iv, 64)
+          && smallStr(request.resource.data.ct, 400000)
+          && isInt(request.resource.data.upd)
+          && isInt(request.resource.data.get('ver', 0))
+          && isInt(request.resource.data.get('del', 0))
+          && smallStr(request.resource.data.get('kid', ''), 64)
+          && smallStr(request.resource.data.get('kind', ''), 20)
+          && smallStr(request.resource.data.get('dev', ''), 40)
+          && request.resource.data.by == request.auth.uid
+          && isInt(request.resource.data.at)
+          && request.resource.data.ts == request.time;
+        allow update: if false;
+        allow delete: if (active(room) && resource.data.ts < request.time - duration.value(30, 'd'))
+          || purgeable(room);
+      }
+
+      // 每日加密備份：只能新增；90 天內任何人（包括成員）都不能修改或刪除
+      match /backups/{bid} {
+        allow read: if isMember(room);
+        allow create: if active(room)
+          && request.resource.data.keys().hasOnly(['set', 'i', 'n', 'at', 'nd', 'sha', 'data', 'dev', 'by', 'ts'])
+          && smallStr(request.resource.data.set, 64)
+          && isInt(request.resource.data.i) && isInt(request.resource.data.n) && request.resource.data.n <= 50
+          && isInt(request.resource.data.at) && isInt(request.resource.data.nd)
+          && smallStr(request.resource.data.sha, 64)
+          && smallStr(request.resource.data.data, 900000)
+          && smallStr(request.resource.data.get('dev', ''), 40)
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.ts == request.time;
+        allow update: if false;
+        allow delete: if isMember(room) && resource.data.ts < request.time - duration.value(90, 'd');
+      }
+    }
+
+    // 其他任何路徑一律拒絕
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

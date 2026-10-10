@@ -157,6 +157,8 @@
   .order.pending{box-shadow:inset 3px 0 0 var(--gold)}
   .pend-tag{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gold);margin-bottom:8px}
   .pend-tag .ic{width:16px;height:16px}
+  .cf-tag{color:var(--red);justify-content:space-between;font-weight:500}
+  .line.bad{box-shadow:inset 3px 0 0 var(--red)}
   .order-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .order-btns .weigh-btn{grid-column:1 / -1;background:var(--gold-soft);color:var(--gold)}
   .order-btns .weigh-btn:active{background:#EFE3C8}
@@ -405,13 +407,13 @@
   <h2 class="sec">客人</h2>
   <section class="card">
     <div class="line"><label class="lbl" for="surname">姓氏</label>
-      <input type="text" id="surname" placeholder="陳" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false">
+      <input type="text" id="surname" placeholder="陳" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
       <div class="seg small" id="titleSeg" role="radiogroup" aria-label="稱謂">
         <button type="button" data-t="小姐" role="radio" aria-checked="false">小姐</button>
         <button type="button" data-t="先生" role="radio" aria-checked="false">先生</button></div></div>
     <div class="err" id="nameErr">請填寫姓氏，並選擇小姐或先生</div>
     <div class="line"><label class="lbl" for="phone">電話</label>
-      <input type="text" id="phone" placeholder="0912345678" inputmode="tel" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false"></div>
+      <input type="text" id="phone" placeholder="0912345678" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done"></div>
     <div class="err" id="phoneErr">請填寫手機號碼，09 開頭共 10 碼</div>
     <div class="line memo"><label class="lbl" for="memo">備註</label><textarea id="memo" rows="1" placeholder="切法、其他交代"></textarea></div>
   </section>
@@ -428,7 +430,7 @@
     </div></div>
     <div id="depositBox" style="display:none">
       <div class="line"><label class="lbl" for="deposit">訂金</label>
-        <input type="number" id="deposit" min="0" inputmode="numeric" placeholder="金額"><span class="owe" id="owe"></span></div>
+        <input type="number" id="deposit" min="0" inputmode="numeric" placeholder="金額" enterkeyhint="done"><span class="owe" id="owe"></span></div>
     </div>
     <div class="line"><span class="lbl" style="width:auto;flex:1">切</span>
       <div class="seg small" data-group="cut"><button type="button" data-v="要切" class="on">要切</button><button type="button" data-v="不切">不切</button></div></div>
@@ -456,7 +458,13 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=1"></script>
+<script src="core.js?v=5"></script>
 <script>
+/* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
+if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
+  document.body.insertAdjacentHTML("afterbegin", '<p style="margin:0;padding:14px 16px;background:#B3261E;color:#fff;font-size:15px">程式檔 shared.js 或 core.js 沒有載入或版本太舊。請把 shared.js、core.js 和這個頁面放在同一個資料夾，然後重新整理。</p>');
+  throw new Error("core.js missing");
+}
 
 
 const qty = {};      // key -> 數量
@@ -520,7 +528,7 @@ function render(){
       <span class="q">0</span>
       <button type="button" data-k="${key}" data-d="1" aria-label="增加">${ICON.plus}</button></div>`;
   const priceIn = (attr, key, val, ph) =>
-    `<label class="pin">$<input type="number" min="0" inputmode="numeric" ${attr}="${key}" value="${val || ""}" placeholder="${ph}"></label>`;
+    `<label class="pin">$<input type="number" min="0" inputmode="numeric" enterkeyhint="done" ${attr}="${key}" value="${val || ""}" placeholder="${ph}"></label>`;
   MENU.forEach((sec, si) => {
     const shut = folded().includes(sec.cat);
     const h = document.createElement("button");
@@ -625,7 +633,6 @@ function getLines(){
   return lines;
 }
 
-/* 防注入：任何要放進 HTML 的文字都先轉義 */
 
 /* 電話遮蔽：0912-***-678 */
 function maskPhone(p){
@@ -653,42 +660,6 @@ function buildText(o, opts = {}){
 function calcTotal(items){ return items.reduce((s, l) => s + (l.sub || 0), 0); }
 function hasPending(items){ return items.some(l => l.weigh && l.sub === null); }
 
-/* 複製文字（回傳 Promise：true=成功） */
-function copyText(text, btn){
-  const done = () => {
-    if (btn) { const old = btn.innerHTML; btn.innerHTML = ICON.check + "已複製"; setTimeout(() => btn.innerHTML = old, 1500); }
-    return true;
-  };
-  function fallback(){
-    // iPhone 舊版 Safari 也能用的複製方式
-    const ta = document.createElement("textarea");
-    ta.value = text; ta.readOnly = true;
-    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
-    document.body.appendChild(ta);
-    ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch (e) {}
-    ta.remove();
-    if (ok) return done();
-    toast("沒辦法自動複製，請長按訂單文字，選「全選」再複製", true);
-    const pre = btn && btn.closest(".sheet") && btn.closest(".sheet").querySelector("pre");
-    if (pre) { const r = document.createRange(); r.selectNodeContents(pre); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
-    return false;
-  }
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text).then(done, () => fallback());
-  }
-  return Promise.resolve(fallback());
-}
-
-/* 手機原生分享（LINE、Messenger、AirDrop…）：只分享純文字，內容和複製的一樣 */
-function canNativeShare(data){
-  if (!window.isSecureContext || typeof navigator.share !== "function") return false;
-  if (typeof navigator.canShare === "function") {
-    try { return navigator.canShare(data); } catch (e) { return false; }
-  }
-  return true;   // 舊版 Safari 有 share 但沒有 canShare
-}
 let sharing = false;
 async function shareText(text, btn){
   if (sharing) return;                      // 避免連點開兩次分享選單
@@ -715,15 +686,6 @@ async function shareText(text, btn){
   }
 }
 
-let toastTimer = null;
-function toast(msg, isErr){
-  const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.classList.toggle("err", !!isErr);
-  t.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), isErr ? 4000 : 2600);
-}
 
 /* 訂單預覽＋電話選項＋分享／複製（共用同一份 buildText） */
 function shareBlock(shareLabel, copyLabel){
@@ -739,7 +701,7 @@ function bindShare(root, o){
   const text = () => buildText(o, { fullPhone: full });
   const paint = () => {
     pre.textContent = text();
-    st.textContent = full ? `分享內容含完整電話${o.addr ? "與地址" : ""}` : `電話${o.addr ? "、地址" : ""}已遮蔽`;
+    st.textContent = full ? `分享內容含完整電話${o.addr ? "與地址" : ""}（只用這一次）` : `電話${o.addr ? "、地址" : ""}已遮蔽`;
     st.className = full ? "warn" : "";
     tg.textContent = full ? "改回遮蔽" : `改成完整電話${o.addr ? "與地址" : ""}`;
   };
@@ -748,54 +710,34 @@ function bindShare(root, o){
       msg: `分享或複製出去的文字會有客人的完整手機號碼${o.addr ? "和地址" : ""}。只有確定對方需要時才這樣做（例如給外送的人）。` }))) return;
     full = !full; paint();
   };
-  root.querySelector('[data-act="share"]').onclick = e => shareText(text(), e.currentTarget);
-  root.querySelector('[data-act="copy"]').onclick = e => copyText(text(), e.currentTarget);
+  // 完整電話只用一次：分享或複製之後自動改回遮蔽
+  const use = (fn, btn) => { const p = fn(text(), btn); if (full) { full = false; paint(); } return p; };
+  root.querySelector('[data-act="share"]').onclick = e => use(shareText, e.currentTarget);
+  root.querySelector('[data-act="copy"]').onclick = e => use(copyText, e.currentTarget);
   paint();
 }
 
 /* ===== 對話框（確認／密碼） ===== */
 const dlg = document.getElementById("dlg"), dlgBox = document.getElementById("dlgBox");
-function closeDlg(){ dlg.classList.remove("show"); dlgBox.innerHTML = ""; }
-function askConfirm({ title, msg, ok = "確定", cancel = "取消", danger = false }){
-  return new Promise(resolve => {
-    dlgBox.innerHTML = `<h4>${escapeHtml(title)}</h4><p>${escapeHtml(msg)}</p>
-      <div class="dlg-btns"><button type="button" class="btn ghost" data-no>${escapeHtml(cancel)}</button>
-      <button type="button" class="btn ${danger ? "danger" : ""}" data-yes>${escapeHtml(ok)}</button></div>`;
-    dlg.classList.add("show");
-    dlgBox.querySelector("[data-no]").onclick = () => { closeDlg(); resolve(false); };
-    dlgBox.querySelector("[data-yes]").onclick = () => { closeDlg(); resolve(true); };
-  });
-}
 const pinField = (id, ph) => `<input class="pin-in" id="${id}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="${ph}">`;
-function setupPinDialog(legacyCount){
-  return new Promise(resolve => {
-    dlgBox.innerHTML = `<h4>設定訂單密碼</h4>
-      <p>客人電話會加密存在這支手機。之後查看訂單要輸入這組密碼，請設定 4–8 位數字。${legacyCount ? `原本的 ${legacyCount} 筆訂單也會一起加密。` : ""}忘記密碼就無法找回訂單。</p>
-      ${pinField("pin1", "輸入密碼")}${pinField("pin2", "再輸入一次")}<div class="dlg-err" id="pinErr"></div>
-      <div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn" data-yes>設定</button></div>`;
-    dlg.classList.add("show");
-    setTimeout(() => document.getElementById("pin1").focus(), 50);
-    dlgBox.querySelector("[data-no]").onclick = () => { closeDlg(); resolve(null); };
-    dlgBox.querySelector("[data-yes]").onclick = () => {
-      const a = document.getElementById("pin1").value, b = document.getElementById("pin2").value, err = document.getElementById("pinErr");
-      if (!/^\d{4,8}$/.test(a)) { err.textContent = "請輸入 4–8 位數字"; return; }
-      if (a !== b) { err.textContent = "兩次輸入不一樣"; return; }
-      closeDlg(); resolve(a);
-    };
-  });
-}
 function unlockDialog(){
   return new Promise(resolve => {
+    const shared = (Vault.meta() || {}).shared;
     dlgBox.innerHTML = `<h4>輸入訂單密碼</h4><p>訂單裡有客人電話，輸入密碼後才能查看。</p>
-      ${(Vault.meta() || {}).shared ? pwField("pinU", "店家密碼") : pinField("pinU", "密碼")}<div class="dlg-err" id="pinErr"></div>
+      ${shared ? pwField("pinU", "店家密碼") : pinField("pinU", "密碼")}<div class="dlg-err" id="pinErr"></div>
       <div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn" data-yes>解鎖</button></div>
       <div style="text-align:center;margin-top:8px"><button type="button" class="link-btn" data-forgot>忘記密碼</button></div>`;
     dlg.classList.add("show");
-    const inp = document.getElementById("pinU"), err = document.getElementById("pinErr");
+    const inp = $("pinU"), err = $("pinErr");
     setTimeout(() => inp.focus(), 50);
     const go = async () => {
       err.textContent = "解鎖中…";
-      if (await Vault.unlock(inp.value)) { closeDlg(); resolve(true); }
+      const pw = inp.value;
+      if (await Vault.unlock(pw)) {
+        closeDlg(); resolve(true);
+        if (shared) Sync.ensureMember(pw);       // 舊版升級：順便把這支手機登記為店家裝置
+        if (Sync.merges().length) Sync.soon();   // 之前沒解鎖時遇到的衝突，現在合併
+      }
       else { err.textContent = "密碼不正確"; inp.value = ""; inp.focus(); }
     };
     inp.onkeydown = e => { if (e.key === "Enter") go(); };
@@ -804,10 +746,10 @@ function unlockDialog(){
     dlgBox.querySelector("[data-forgot]").onclick = async () => {
       closeDlg();
       const a = await askConfirm({ title: "忘記密碼", ok: "清除並重設", danger: true,
-        msg: (Vault.meta() || {}).shared ? "會清除這支手機上的訂單資料。雲端的訂單不受影響，之後用正確的店家密碼就能重新加入。" : "密碼無法找回。要重新設定，必須刪除這支手機上所有已存的訂單。" });
+        msg: shared ? "會清除這支手機上的訂單資料。雲端的訂單不受影響，之後用正確的店家密碼就能重新加入。" : "密碼無法找回。要重新設定，必須刪除這支手機上所有已存的訂單。" });
       const b = a && await askConfirm({ title: "確定刪除全部訂單？", ok: "刪除全部", danger: true,
-        msg: "所有訂單和客人電話都會永久刪除，無法復原。" });
-      if (b) { Vault.wipe(); localStorage.removeItem(SYNC_KEY); Sync.paint(); toast("已清除這支手機的資料，下次存檔時會請你輸入店家密碼"); }
+        msg: shared ? "這支手機上還沒同步的訂單會刪除（清除前會先留一份加密備份）。" : "所有訂單和客人電話都會從這支手機刪除（清除前會先留一份加密備份，想起密碼時可以復原）。" });
+      if (b) { await Backup.snapshot("before-wipe"); Vault.wipe(); localStorage.removeItem(SYNC_KEY); Sync.paint(); toast("已清除這支手機的資料，下次存檔時會請你輸入店家密碼"); }
       resolve(false);
     };
   });
@@ -815,149 +757,181 @@ function unlockDialog(){
 
 /* ===== 訂單加密保存 =====
    每筆訂單用 AES-GCM 加密，金鑰再用 RSA 公鑰包起來。
-   接單存檔只需要公鑰（不用輸入密碼）；讀取需要私鑰，私鑰由店家密碼（PBKDF2）加密保存。
-   所有資料只存在這支手機的瀏覽器，不會傳到任何伺服器。 */
-const VAULT_KEY = "orderVault", ENC_KEY = "ordersEnc", LEGACY_KEY = "orders";
-const te = new TextEncoder(), td = new TextDecoder();
-function b64(buf){ const u = new Uint8Array(buf); let s = ""; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); }
-function unb64(s){ return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
-const RSA = { name: "RSA-OAEP", hash: "SHA-256" };
+   接單存檔只需要公鑰；讀取需要私鑰，私鑰由店家密碼（PBKDF2）加密保存。
+   第一次輸入密碼後，私鑰以「不可匯出」的形式記在這支手機的 IndexedDB，之後打開不用再輸入；按「鎖定」才會忘記。
+   更換店家密碼會換一組新金鑰；舊金鑰用新密碼加密後留在「金鑰圈」，舊手機還沒上傳的訂單才讀得到。
+   刪除只是移到「最近刪除」，30 天內可以復原。 */
+const VAULT_KEY = "orderVault", ENC_KEY = "ordersEnc", LEGACY_KEY = "orders", MERGE_KEY = "ordersMerge", KEYS_KV = "vaultKeys";
 const Vault = {
-  pub: null, priv: null, orders: null,
+  pub: null, priv: null, keys: null, kid: "", orders: null, trash: null, unlockedAt: 0,
   supported(){ return !!(window.isSecureContext && window.crypto && crypto.subtle); },
   meta(){ try { return JSON.parse(localStorage.getItem(VAULT_KEY) || "null"); } catch (e) { return null; } },
   exists(){ return !!this.meta(); },
   records(){ try { return JSON.parse(localStorage.getItem(ENC_KEY) || "[]"); } catch (e) { return []; } },
   writeRecords(r){ localStorage.setItem(ENC_KEY, JSON.stringify(r)); },
   legacy(){ try { const a = JSON.parse(localStorage.getItem(LEGACY_KEY) || "[]"); return Array.isArray(a) ? a.filter(o => o && o.items) : []; } catch (e) { return []; } },
-  async pinKey(pin, salt, iter){
-    const base = await crypto.subtle.importKey("raw", te.encode(pin), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-  },
   async loadPub(){
     if (this.pub) return;
     const m = this.meta(); if (!m) throw new Error("no vault");
     this.pub = await crypto.subtle.importKey("jwk", m.pub, RSA, false, ["wrapKey"]);
-  },
-  async setup(pin){
-    const kp = await crypto.subtle.generateKey({ ...RSA, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) }, true, ["wrapKey", "unwrapKey"]);
-    const pubJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
-    const pk8 = await crypto.subtle.exportKey("pkcs8", kp.privateKey);
-    const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 200000;
-    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.pinKey(pin, salt, iter), pk8);
-    localStorage.setItem(VAULT_KEY, JSON.stringify({ v: 1, iter, salt: b64(salt), iv: b64(iv), priv: b64(ct), pub: pubJwk }));
-    this.pub = null; await this.loadPub();
-    this.priv = await crypto.subtle.importKey("pkcs8", pk8, RSA, false, ["unwrapKey"]);
-    this.orders = [];
-    await this.migrateLegacy();
+    this.kid = await kidOf(m);
   },
   async unlock(pin){
     const m = this.meta(); if (!m || typeof pin !== "string" || pin.length < 4 || pin.length > 64) return false;
-    let pk8;
-    try { pk8 = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(m.iv) }, await this.pinKey(pin, unb64(m.salt), m.iter), unb64(m.priv)); }
-    catch (e) { return false; }
-    this.priv = await crypto.subtle.importKey("pkcs8", pk8, RSA, false, ["unwrapKey"]);
-    const list = [];
-    for (const rec of this.records()) { try { list.push(await this.open(rec)); } catch (e) {} }
-    this.orders = list.sort((a, b) => b.id - a.id);
-    armIdle();
+    const keys = await Backup.keys(m, pin);
+    if (!keys) return false;
+    await this.useKeys(keys, m);
     return true;
   },
-  lock(){ this.priv = null; this.orders = null; },
-  /* 產生一組新的金鑰，私鑰用店家密碼加密 */
-  async makeMeta(pw, shared){
+  async useKeys(keys, m){
+    this.keys = keys; this.kid = await kidOf(m); this.priv = keys.get(this.kid);
+    await this.reload();
+    this.unlockedAt = Date.now();
+    armIdle();
+    await KV.set(KEYS_KV, { kid: this.kid, keys: [...keys.entries()] });   // 記住（不可匯出的金鑰物件）
+  },
+  /* 打開網頁時：用記住的金鑰自動解鎖，不用再輸入密碼 */
+  async autoUnlock(){
+    if (this.keys) return true;
+    const m = this.meta(), s = await KV.get(KEYS_KV);
+    if (!m || !s || !Array.isArray(s.keys) || s.kid !== await kidOf(m)) return false;
+    this.keys = new Map(s.keys); this.kid = s.kid; this.priv = this.keys.get(this.kid);
+    if (!this.priv) { this.keys = null; return false; }
+    await this.reload();
+    this.unlockedAt = Date.now();
+    return true;
+  },
+  /* 只確認密碼對不對，不改變目前狀態 */
+  async verify(pin){ const m = this.meta(); return !!(m && typeof pin === "string" && await Backup.keys(m, pin)); },
+  async reload(){
+    if (!this.keys) return;
+    const list = [], trash = [];
+    for (const rec of this.records()) {
+      try { const o = await this.open(rec); if (rec.del) trash.push({ o, del: rec.del }); else list.push(o); } catch (e) {}
+    }
+    this.orders = list.sort((a, b) => b.id - a.id);
+    this.trash = trash.sort((a, b) => b.del - a.del);
+  },
+  lock(forget){ this.priv = null; this.keys = null; this.orders = null; this.trash = null; this.unlockedAt = 0; if (forget) KV.del(KEYS_KV); },
+  /* 取出原始私鑰（更換密碼時把舊金鑰放進新的金鑰圈） */
+  async rawKeys(meta, pw){
+    try {
+      const pk = await Backup.pinKey(pw, unb64(meta.salt), meta.iter), out = [];
+      out.push({ kid: await kidOf(meta), pk8: await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(meta.iv) }, pk, unb64(meta.priv)) });
+      for (const r of meta.ring || []) { try { out.push({ kid: r.kid, pk8: await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(r.iv) }, pk, unb64(r.priv)) }); } catch (e) {} }
+      return out;
+    } catch (e) { return null; }
+  },
+  /* 產生一組新的金鑰，私鑰（和舊金鑰圈）用店家密碼加密 */
+  async makeMeta(pw, shared, ring = []){
     const kp = await crypto.subtle.generateKey({ ...RSA, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) }, true, ["wrapKey", "unwrapKey"]);
     const pubJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
     const pk8 = await crypto.subtle.exportKey("pkcs8", kp.privateKey);
     const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 300000;
-    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.pinKey(pw, salt, iter), pk8);
-    return { v: 2, shared: !!shared, iter, salt: b64(salt), iv: b64(iv), priv: b64(ct),
-      pub: { kty: pubJwk.kty, n: pubJwk.n, e: pubJwk.e, alg: pubJwk.alg, ext: true } };
+    const pk = await Backup.pinKey(pw, salt, iter), kid = (await sha256hex(pubJwk.n)).slice(0, 16);
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, pk, pk8);
+    const encRing = [];
+    for (const r of ring) {
+      if (r.kid === kid || encRing.some(x => x.kid === r.kid)) continue;
+      const riv = crypto.getRandomValues(new Uint8Array(12));
+      encRing.push({ kid: r.kid, iv: b64(riv), priv: b64(await crypto.subtle.encrypt({ name: "AES-GCM", iv: riv }, pk, r.pk8)) });
+    }
+    return { v: 3, kid, shared: !!shared, iter, salt: b64(salt), iv: b64(iv), priv: b64(ct),
+      pub: { kty: pubJwk.kty, n: pubJwk.n, e: pubJwk.e, alg: pubJwk.alg, ext: true }, ring: encRing };
   },
   /* 換成新的金鑰（加入或建立店家同步），把手上的訂單用新金鑰重新加密 */
-  async install(meta, pw, carry){
-    const keep = carry || [];
+  async install(meta, pw, carry, carryTrash){
+    const keep = carry || [], gone = carryTrash || [];
     const old = localStorage.getItem(VAULT_KEY), oldRecs = localStorage.getItem(ENC_KEY);
     try {
       localStorage.setItem(VAULT_KEY, JSON.stringify(meta));
-      this.pub = null; this.priv = null;
+      this.pub = null; this.lock();
       if (!(await this.unlock(pw))) throw new Error("pw");
       const recs = [];
       for (const o of keep) { o.upd = o.upd || o.id; const rec = await this.seal(o); if (meta.shared) rec.p = 1; recs.push(rec); }
-      this.writeRecords(recs);
-      this.orders = keep.slice().sort((a, b) => b.id - a.id);
+      for (const t of gone) { const rec = await this.seal(t.o); rec.del = t.del; if (meta.shared) rec.p = 1; recs.push(rec); }
+      this.writeRecords(recs.sort((a, b) => b.id - a.id));
+      await this.reload();
       localStorage.removeItem(LEGACY_KEY);
     } catch (e) {
       // 失敗就還原，不遺失資料
       if (old) localStorage.setItem(VAULT_KEY, old); else localStorage.removeItem(VAULT_KEY);
       if (oldRecs) localStorage.setItem(ENC_KEY, oldRecs);
-      this.pub = null; this.lock();
+      this.pub = null; this.lock(true);
       throw e;
     }
   },
-  /* 把雲端的加密資料合併進來；回傳有變動的 id */
-  async mergeRemote(remote, known){
-    const local = this.records(), byId = new Map(local.map(r => [r.id, r])), rIds = new Set(remote.map(r => r.id));
-    const changed = [], removed = [];
-    for (const rr of remote) {
-      const l = byId.get(rr.id);
-      if (!l || (!l.p && rr.upd > (l.upd || 0))) { byId.set(rr.id, rr); changed.push(rr.id); }
+  /* 改用雲端的新金鑰（店家密碼更換後重新加入），保留手機上的訂單 */
+  async adopt(meta, pw){
+    const cur = this.meta();
+    if (cur && JSON.stringify(cur) === JSON.stringify(meta)) { if (!(await this.unlock(pw))) throw new Error("pw"); return; }
+    if (cur && !this.keys) { const k = await Backup.keys(cur, pw); if (k) await this.useKeys(k, cur); else await this.autoUnlock(); }
+    const oldKid = cur ? await kidOf(cur) : "", kids = new Set([await kidOf(meta), ...(meta.ring || []).map(r => r.kid)]);
+    const recs = this.records(), redo = [];
+    for (const r of recs) {
+      if (!r.kid && oldKid) r.kid = oldKid;
+      if (r.kid && !kids.has(r.kid) && this.keys) { try { redo.push({ r, o: await this.open(r) }); } catch (e) {} }   // 新金鑰圈讀不到：先解開，換金鑰後重新加密
     }
-    for (const l of local) {
-      if (rIds.has(l.id) || l.p) continue;
-      if (known.has(l.id)) { byId.delete(l.id); removed.push(l.id); }   // 其他手機刪掉了
-      else { l.p = 1; }                                                  // 還沒上傳過
-    }
-    this.writeRecords([...byId.values()].sort((a, b) => b.id - a.id));
-    if (this.orders && this.priv) {
-      for (const id of changed) {
-        try { const o = await this.open(byId.get(id)); const j = this.orders.findIndex(x => x.id === id); if (j >= 0) this.orders[j] = o; else this.orders.push(o); } catch (e) {}
-      }
-      if (removed.length) this.orders = this.orders.filter(o => !removed.includes(o.id));
-      this.orders.sort((a, b) => b.id - a.id);
-    }
-    return { changed, removed };
+    const old = localStorage.getItem(VAULT_KEY);
+    localStorage.setItem(VAULT_KEY, JSON.stringify(meta)); this.pub = null;
+    const keys = await Backup.keys(meta, pw);
+    if (!keys) { if (old) localStorage.setItem(VAULT_KEY, old); this.pub = null; throw new Error("pw"); }
+    for (const { r, o } of redo) { const n = await this.seal(o, await crypto.subtle.importKey("jwk", meta.pub, RSA, false, ["wrapKey"]), await kidOf(meta)); Object.assign(r, { iv: n.iv, wk: n.wk, ct: n.ct, kid: n.kid, p: 1 }); delete r.base; }
+    this.writeRecords(recs);
+    await this.useKeys(keys, meta);
   },
-  markPushed(id){ const r = this.records(); const x = r.find(y => y.id === id); if (x) { delete x.p; this.writeRecords(r); } },
-  async seal(order){
-    await this.loadPub();
+  async seal(order, pub, kid){
+    if (!pub) { await this.loadPub(); pub = this.pub; kid = this.kid; }
     const k = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, te.encode(JSON.stringify(order)));
-    const wk = await crypto.subtle.wrapKey("raw", k, this.pub, { name: "RSA-OAEP" });
-    return { id: order.id, iv: b64(iv), wk: b64(wk), ct: b64(ct), upd: order.upd || order.id };
+    const wk = await crypto.subtle.wrapKey("raw", k, pub, { name: "RSA-OAEP" });
+    return { id: order.id, iv: b64(iv), wk: b64(wk), ct: b64(ct), upd: order.upd || order.id, kid };
   },
-  async open(rec){
-    const k = await crypto.subtle.unwrapKey("raw", unb64(rec.wk), this.priv, { name: "RSA-OAEP" }, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-    return JSON.parse(td.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(rec.iv) }, k, unb64(rec.ct))));
+  open(rec){ return Backup.openRec(this.keys || new Map(this.priv ? [["", this.priv]] : []), rec); },
+  /* 開始修改一筆已同步的訂單前：記下雲端的上一版（衝突時三方比較用，也會存成歷史版本） */
+  markEdit(x){
+    if (!x.p && x.ut && !x.base) x.base = { iv: x.iv, wk: x.wk, ct: x.ct, kid: x.kid, upd: x.upd, ver: x.ver, del: x.del || 0, dtsRaw: x.dtsRaw, by: x.by, rts: x.rts };
+    if (Sync.on()) x.p = 1;
   },
   async put(order){
     order.upd = Date.now();
     const rec = await this.seal(order);
-    if (Sync.on()) rec.p = 1;                       // 等待上傳
     const r = this.records(), i = r.findIndex(x => x.id === order.id);
-    if (i >= 0) r[i] = rec; else r.unshift(rec);
+    if (i >= 0) {
+      const x = r[i];
+      this.markEdit(x);
+      for (const k of ["ver", "ut", "gone", "dtsRaw", "by", "rts", "base", "del", "p"]) if (x[k] !== undefined) rec[k] = x[k];
+      r[i] = rec;
+    } else { if (Sync.on()) rec.p = 1; r.unshift(rec); }
     this.writeRecords(r);
+    if (!this.records().some(x => x.id === order.id && x.ct === rec.ct)) throw new Error("save");   // 讀回確認真的存進去
     Sync.soon();
     if (this.orders) {
       const j = this.orders.findIndex(x => x.id === order.id);
       if (j >= 0) this.orders[j] = order; else this.orders.unshift(order);
     }
   },
-  async putRaw(order){
-    const rec = await this.seal(order);
-    const r = this.records(), i = r.findIndex(x => x.id === order.id);
-    if (i >= 0) r[i] = rec; else r.unshift(rec);
+  /* del=時間：移到「最近刪除」；del=0：復原 */
+  setDel(ids, del){
+    const set = new Set(ids), r = this.records();
+    for (const x of r) if (set.has(x.id) && !!x.del !== !!del) { this.markEdit(x); x.del = del; }
     this.writeRecords(r);
-    if (this.orders) { const j = this.orders.findIndex(x => x.id === order.id); if (j >= 0) this.orders[j] = order; else this.orders.unshift(order); }
+    Sync.soon();
+    if (this.orders) {
+      if (del) { const moved = this.orders.filter(o => set.has(o.id)); this.orders = this.orders.filter(o => !set.has(o.id)); this.trash = [...moved.map(o => ({ o, del })), ...(this.trash || [])]; }
+      else { const back = (this.trash || []).filter(t => set.has(t.o.id)); this.trash = (this.trash || []).filter(t => !set.has(t.o.id)); this.orders = [...this.orders, ...back.map(t => t.o)].sort((a, b) => b.id - a.id); }
+    }
   },
-  remove(id){
-    this.writeRecords(this.records().filter(x => x.id !== id));
-    Sync.queueDelete([id]);
-    if (this.orders) this.orders = this.orders.filter(x => x.id !== id);
+  remove(id){ this.setDel([id], Date.now()); },
+  restore(ids){ this.setDel(ids, 0); },
+  clearOrders(){ this.setDel(this.records().filter(r => !r.del).map(r => r.id), Date.now()); localStorage.removeItem(LEGACY_KEY); },
+  /* 刪除超過 30 天、也不用再上傳的，從手機移除 */
+  prune(){
+    const lim = Date.now() - TRASH_DAYS * DAY, r = this.records(), keep = r.filter(x => !(x.del && x.del < lim && !x.p));
+    if (keep.length !== r.length) { this.writeRecords(keep); if (this.trash) this.trash = this.trash.filter(t => t.del >= lim); }
   },
-  clearOrders(){ Sync.queueDelete(this.records().map(r => r.id)); this.writeRecords([]); localStorage.removeItem(LEGACY_KEY); if (this.orders) this.orders = []; },
-  wipe(){ [VAULT_KEY, ENC_KEY, LEGACY_KEY].forEach(k => localStorage.removeItem(k)); this.pub = null; this.lock(); },
+  wipe(){ [VAULT_KEY, ENC_KEY, LEGACY_KEY, MERGE_KEY].forEach(k => localStorage.removeItem(k)); this.pub = null; this.lock(true); },
   /* 舊版明碼訂單 → 加密後才刪除原資料，避免遺失 */
   async migrateLegacy(){
     const old = this.legacy(); if (!old.length) return 0;
@@ -970,124 +944,358 @@ const Vault = {
       used.add(id);
       const n = { ...o, id, name: String(o.name || ""), phone: String(o.phone || "").replace(/\D/g, "") };
       delete n.time;
-      recs.push({ rec: await this.seal(n), order: n });
+      const rec = await this.seal(n);
+      if (Sync.on()) rec.p = 1;
+      recs.push({ rec, order: n });
     }
     this.writeRecords([...recs.map(x => x.rec), ...this.records()]);
     if (this.records().length >= recs.length) localStorage.removeItem(LEGACY_KEY);
     if (this.orders) { this.orders.push(...recs.map(x => x.order)); this.orders.sort((a, b) => b.id - a.id); }
+    Sync.soon();
     return recs.length;
   },
 };
 
-/* ===== 雲端同步（Firebase；訂單加密後才上傳，雲端只有亂碼） =====
-   房間代號由店家密碼推算，沒有密碼找不到資料；只連到 Google Firebase，不連其他地方。 */
-const FS = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents`;
-const SYNC_KEY = "syncCfg";
+/* 兩支手機同時改了同一筆訂單：逐欄三方比較（B 共同上一版、L 這支手機、R 雲端先同步的），不看手機時間。
+   兩邊改了同一個地方而且不同 → 先用雲端的版本，這支手機的版本放在 cf.alt，列表會提示讓使用者選擇。 */
+const ORDER_FIELD = { name: "客人", surname: "姓氏", title: "稱謂", phone: "電話", addr: "地址", date: "取貨日期", ptime: "取貨時間", market: "市場", memo: "備註",
+  prep: "處理方式", pay: "付款", deposit: "訂金", items: "品項", odate: "訂購日" };
+function mergeOrder3(B, L, R){
+  const out = {}, cf = [];
+  const keys = new Set([...Object.keys(L), ...Object.keys(R), ...(B ? Object.keys(B) : [])]);
+  for (const k of keys) {
+    if (["upd", "total", "cf", "id"].includes(k)) continue;
+    const bi = B && B.items;
+    if (k === "items" && Array.isArray(L.items) && Array.isArray(R.items) && L.items.length === R.items.length && (!B || (Array.isArray(bi) && bi.length === L.items.length))) {
+      out.items = L.items.map((l, i) => {
+        const r = R.items[i];
+        if (!B && l && r && same({ ...l, sub: 0 }, { ...r, sub: 0 })) {   // 沒有共同上一版：一邊有秤重金額、一邊還沒填 → 補上
+          if ((r.sub === null || r.sub === undefined) && l.sub !== null && l.sub !== undefined) return l;
+          if ((l.sub === null || l.sub === undefined) && r.sub !== null && r.sub !== undefined) return r;
+        }
+        const [v, c] = pick3(B && bi[i], l, r, !!B);
+        if (c && !cf.includes("items")) cf.push("items");
+        return v;
+      });
+      continue;
+    }
+    const [v, c] = pick3(B ? B[k] : undefined, L[k], R[k], !!B);
+    if (c) cf.push(k);
+    if (v !== undefined) out[k] = v;
+  }
+  out.id = R.id; out.upd = Math.max(L.upd || 0, R.upd || 0); out.total = calcTotal(out.items || []);
+  if (cf.length) { const alt = { ...L }; delete alt.cf; out.cf = { at: Date.now(), dev: deviceInfo().name, fields: cf, alt }; }
+  else if (R.cf) out.cf = R.cf;
+  return { m: out, conflict: cf.length > 0 };
+}
+
+/* ===== 雲端同步（訂單加密後才上傳，雲端只有亂碼） =====
+   房間代號由店家密碼推算；每支手機第一次輸入店家密碼時，在背景自動登記為店家裝置。
+   每筆資料有版本號：上傳時雲端版本若已被別支手機改過，就先合併再上傳，不會互相覆蓋。
+   打開的手機每 6 秒檢查一次變動，其他手機的新增、修改、刪除、復原會自動出現。 */
+const SYNC_KEY = "syncCfg", POLL_MS = 6000, FULL_MS = 3 * 3600 * 1000;
+const NEED_TEXT = {
+  join: "需要輸入一次店家密碼",
+  retired: "店家密碼已更換，請輸入新的店家密碼",
+  revoked: "這支手機的同步已被停用",
+  rotating: "更換店家密碼還沒完成",
+};
 const Sync = {
-  idToken: null, exp: 0, busy: false, again: false, last: 0, state: "", timer: null,
+  busy: false, again: false, last: 0, state: "", timer: null, cur: null, n: 0,
   cfg(){ try { return JSON.parse(localStorage.getItem(SYNC_KEY) || "null") || {}; } catch (e) { return {}; } },
   saveCfg(c){ localStorage.setItem(SYNC_KEY, JSON.stringify(c)); },
+  upd(p){ this.saveCfg({ ...this.cfg(), ...p }); },
   on(){ return !!this.cfg().room; },
-  known(){ return new Set(this.cfg().known || []); },
-  async token(){
-    if (this.idToken && Date.now() < this.exp - 60000) return this.idToken;
-    const c = this.cfg();
-    if (c.rt) {
-      const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FB.apiKey}`, { method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=refresh_token&refresh_token=" + encodeURIComponent(c.rt) });
-      if (r.ok) { const j = await r.json(); this.idToken = j.id_token; this.exp = Date.now() + Number(j.expires_in) * 1000; this.saveCfg({ ...this.cfg(), rt: j.refresh_token }); return this.idToken; }
-    }
-    const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB.apiKey}`, { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ returnSecureToken: true }) });
-    if (!r.ok) throw new Error("auth");
-    const j = await r.json(); this.idToken = j.idToken; this.exp = Date.now() + Number(j.expiresIn) * 1000;
-    this.saveCfg({ ...this.cfg(), rt: j.refreshToken });
-    return this.idToken;
-  },
-  async api(method, path, body){
-    const t = await this.token();
-    const r = await fetch(FS + path, { method, headers: { Authorization: "Bearer " + t, ...(body ? { "Content-Type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined });
-    if (r.status === 404 && method !== "PATCH") return null;
-    if (!r.ok) throw new Error("http " + r.status);
-    return method === "DELETE" ? null : r.json();
-  },
-  async roomId(pw){
-    const base = await crypto.subtle.importKey("raw", te.encode(pw), "PBKDF2", false, ["deriveBits"]);
-    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: te.encode("smoked-order/room/v1"), iterations: 300000, hash: "SHA-256" }, base, 256);
-    return [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, "0")).join("");
-  },
-  doc(rec){ return { fields: { iv: { stringValue: rec.iv }, ct: { stringValue: rec.wk + "." + rec.ct }, upd: { integerValue: String(rec.upd || 0) } } }; },
-  rec(d){
-    const f = d.fields || {}, parts = String((f.ct && f.ct.stringValue) || "").split(".");
-    return { id: Number(d.name.split("/").pop()), iv: f.iv && f.iv.stringValue, wk: parts[0], ct: parts[1], upd: Number((f.upd && f.upd.integerValue) || 0) };
-  },
-  async getMeta(room){ const d = await this.api("GET", `/rooms/${room}/orders/_meta`); return d ? JSON.parse(d.fields.ct.stringValue) : null; },
-  async putMeta(room, meta){ await this.api("PATCH", `/rooms/${room}/orders/_meta`, { fields: { iv: { stringValue: "meta" }, ct: { stringValue: JSON.stringify(meta) }, upd: { integerValue: "0" } } }); },
-  async listAll(room){
-    const out = []; let tok = "";
-    do {
-      const j = await this.api("GET", `/rooms/${room}/orders?pageSize=300` + (tok ? "&pageToken=" + encodeURIComponent(tok) : ""));
-      ((j && j.documents) || []).forEach(d => { if (!d.name.endsWith("/_meta")) { const r = this.rec(d); if (Number.isFinite(r.id) && r.ct) out.push(r); } });
-      tok = j && j.nextPageToken;
-    } while (tok);
-    return out;
-  },
-  queueDelete(ids){ if (!this.on() || !ids.length) return; const c = this.cfg(); c.dels = [...new Set([...(c.dels || []), ...ids])]; this.saveCfg(c); this.soon(); },
-  soon(){ clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), 300); },
-  async run(){
-    if (!this.on()) { this.paint(); return; }
-    if (this.busy) { this.again = true; return; }
-    if (!navigator.onLine) { this.state = "off"; this.paint(); return; }
+  need(){ return this.cfg().need || ""; },
+  get lastFull(){ return Number(localStorage.getItem("fullAt:" + this.cfg().room)) || 0; },
+  set lastFull(v){ try { localStorage.setItem("fullAt:" + this.cfg().room, String(v)); } catch (e) {} },
+  merges(){ try { return JSON.parse(localStorage.getItem(MERGE_KEY) || "[]"); } catch (e) { return []; } },
+  pending(){ return Vault.records().filter(r => r.p).length; },
+  soon(){ this.paint(); clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), 300); },
+  run(force){
+    if (!this.on()) { this.paint(); return Promise.resolve(); }
+    if (this.busy) { this.again = true; return this.cur; }
+    if (!navigator.onLine) { this.state = "off"; this.paint(); return Promise.resolve(); }
+    if (this.need() && !force) { this.state = "need"; this.paint(); return Promise.resolve(); }
     this.busy = true; this.state = "busy"; this.paint();
+    this.cur = (async () => {
+      let changed = false;
+      try {
+        changed = await this.cycle();
+        this.last = Date.now(); this.state = "ok";
+        if (this.need() && this.need() !== "rotating") this.upd({ need: "" });
+        Cloud.touch(this.cfg().room);
+      } catch (e) {
+        let why = "";
+        if (e && (e.code === "retired" || e.code === "denied")) {   // 先看這支手機是不是被停用，再看密碼有沒有被更換
+          why = await Cloud.diagnose(this.cfg().room).catch(() => e.code === "retired" ? "retired" : "");
+          if (why === "denied" || why === "join") why = e.code === "retired" ? "retired" : why === "join" ? "join" : "";
+          if (why === "retired" && this.cfg().rotating) why = "rotating";
+        }
+        if (why) { this.upd({ need: why }); this.state = "need"; }
+        else this.state = navigator.onLine ? "err" : "off";
+      } finally {
+        this.busy = false; this.paint();
+        if (changed && Vault.orders && modal.classList.contains("show")) refreshOrderView();
+        if (this.again) { this.again = false; this.soon(); }
+      }
+    })();
+    return this.cur;
+  },
+  async cycle(){
+    const c = this.cfg(), room = c.room;
+    if (c.purge && (typeof c.purge === "string" || Date.now() > c.purge.after)) {   // 更換密碼 7 天後清掉舊房間
+      try { await Cloud.purgeRoom(c.purge.room || c.purge); this.upd({ purge: "" }); } catch (e) {}
+    }
+    if (c.legacy) { if (await Cloud.importLegacy(room, c.legacy) >= -1) this.upd({ legacy: "" }); }   // 舊版房間的資料搬過來
+    let changed = false;
+    if (Vault.keys) changed = await this.mergePending();
+    // 舊版排隊中的刪除 → 改成「標記刪除」，30 天內還能復原
+    for (const id of c.dels || []) {
+      const d = await Cloud.getDoc(room, id);
+      if (d && !d.data.del) await Cloud.put(room, id, { iv: d.data.iv, ct: d.data.ct, upd: d.data.upd, del: Date.now(), kid: d.data.kid }, { ver: d.data.ver || 0, ut: d.ut });
+      const cc = this.cfg(); cc.dels = (cc.dels || []).filter(x => x !== id); this.saveCfg(cc);
+    }
+    const full = !this.lastFull || Date.now() - this.lastFull > FULL_MS;
+    if (full || ++this.n % 5 === 0) { const rd = await Cloud.room(room); if (rd && rd.retired) throw new CloudError("retired"); }   // 約每 30 秒確認密碼有沒有被更換
+    const docs = full ? await Cloud.list(room) : await Cloud.changedSince(room, (c.cursor || 0) - 10000);
+    changed = this.applyRemote(docs, full) || changed;
+    changed = (await this.pushPending(room)) || changed;
+    if (full) {
+      this.lastFull = Date.now();
+      await this.purgeOld(room, docs);
+      Cloud.backupDaily(room, docs).catch(() => {});   // 雲端每日加密備份（今天已經有就跳過）
+    }
+    if (changed) await Vault.reload();
+    return changed;
+  },
+  fromDoc(d){
+    const p = String(d.data.ct || "").split(".");
+    return { id: Number(d.id), iv: d.data.iv, wk: p[0], ct: p[1], upd: d.data.upd || 0, kid: d.data.kid || undefined, del: d.data.del || 0, ver: d.data.ver || 0, ut: d.ut,
+      dtsRaw: d.dtsRaw, by: d.data.by, rts: d.data.ts };
+  },
+  fields(l){ return { iv: l.iv, ct: l.wk + "." + l.ct, upd: l.upd, del: l.del || 0, kid: l.kid, ver: l.ver }; },
+  applyRemote(docs, full){
+    const recs = Vault.records(), byId = new Map(recs.map(r => [r.id, r])), known = new Set(this.cfg().known || []);
+    let changed = false, maxTs = this.cfg().cursor || 0;
+    const seen = new Set();
+    for (const d of docs) {
+      if (d.data.ts > maxTs) maxTs = d.data.ts;
+      if (!ORDER_ID.test(d.id) || !d.data.ct) continue;
+      const id = Number(d.id); seen.add(id);
+      const l = byId.get(id);
+      if (l && l.ut === d.ut) continue;
+      // 換房間（升級或更換密碼）後：雲端已經有一樣的這筆（同一次修改），直接接上，不用再上傳
+      if (l && l.p && !l.ut && !l.base && l.upd === (d.data.upd || 0) && !!l.del === !!d.data.del) { byId.set(id, this.fromDoc(d)); continue; }
+      if (l && l.p) continue;    // 這支手機有待上傳的修改（上傳時合併）
+      byId.set(id, this.fromDoc(d)); changed = true;
+    }
+    if (full) {
+      for (const l of byId.values()) {
+        if (seen.has(l.id) || l.p) continue;
+        if (l.ut || known.has(l.id)) { if (!l.del) { l.del = Date.now(); l.gone = 1; changed = true; } }   // 雲端已經沒有：移到最近刪除，不直接刪
+        else l.p = 1;                                                                                    // 從來沒上傳過
+      }
+    }
+    Vault.writeRecords([...byId.values()].sort((a, b) => b.id - a.id));
+    const c = this.cfg(); c.cursor = maxTs; if (full) delete c.known; this.saveCfg(c);
+    return changed;
+  },
+  markPushed(id, sent, res, uid){
+    const r = Vault.records(), x = r.find(y => y.id === id); if (!x) return;
+    Object.assign(x, { ver: res.ver, ut: res.ut, dtsRaw: res.dtsRaw, by: uid, rts: Date.now() }); delete x.gone;
+    if (x.ct === sent.ct && (x.del || 0) === (sent.del || 0)) { delete x.p; delete x.base; }
+    else x.base = { iv: sent.iv, wk: sent.wk, ct: sent.ct, kid: sent.kid, upd: sent.upd, ver: res.ver, del: sent.del || 0, dtsRaw: res.dtsRaw, by: uid, rts: Date.now() };   // 上傳途中又改了：剛上傳的就是新的上一版
+    Vault.writeRecords(r);
+  },
+  async pushPending(room){
+    let changed = false;
+    const uid = await Cloud.uid();
+    for (const id of Vault.records().filter(r => r.p).map(r => r.id)) {
+      for (let tries = 0; tries < 4; tries++) {
+        const l = Vault.records().find(r => r.id === id); if (!l || !l.p) break;
+        try {
+          const b = l.base, base = l.gone || !l.ut ? null : { ver: l.ver, ut: l.ut, del: b ? b.del : 0, dtsRaw: b ? b.dtsRaw : undefined };
+          const prev = b && base && Cloud.keepPrev({ ver: l.ver, by: b.by, rts: b.rts }, uid) ? { ...this.fields(b), ver: l.ver } : null;
+          const res = await Cloud.put(room, id, this.fields(l), base, prev);
+          this.markPushed(id, l, res, uid);
+          break;
+        } catch (e) {
+          if (e.code === "denied") { const why = await Cloud.diagnose(room); if (why !== "denied") throw e; }   // 被拒絕是因為版本不對 → 當成衝突
+          else if (e.code !== "conflict") throw e;
+          const r = await this.resolve(room, l);
+          if (r) changed = true;
+          if (r === "deferred") break;
+        }
+      }
+    }
+    return changed;
+  },
+  /* 衝突：讀雲端最新版本，逐欄三方合併。兩邊改了同一個地方 → 用雲端的，這支手機的版本存成歷史並提示使用者 */
+  async resolve(room, l){
+    const d = await Cloud.getDoc(room, l.id);
+    const r = Vault.records(), i = r.findIndex(x => x.id === l.id);
+    if (!d) { r[i].gone = 1; Vault.writeRecords(r); return false; }   // 雲端被清掉了：下一輪當新的一筆上傳
+    const rr = this.fromDoc(d);
+    if (!Vault.keys) {
+      // 還沒解鎖：先用雲端版本，這支手機的版本留著，解鎖後再合併
+      const m = this.merges(); const x = { ...l }; delete x.p; m.push(x);
+      localStorage.setItem(MERGE_KEY, JSON.stringify(m));
+      r[i] = rr; Vault.writeRecords(r);
+      return "deferred";
+    }
+    let L, R, B = null;
+    try { L = await Vault.open(l); R = await Vault.open(rr); } catch (e) { r[i] = rr; Vault.writeRecords(r); await Cloud.saveRev(room, l.id, this.fields(l)); return true; }
+    if (l.base) { try { B = await Vault.open(l.base); } catch (e) {} }
+    const { m, conflict } = mergeOrder3(B, L, R);
+    const delL = !!l.del, delR = !!rr.del, delB = B ? !!l.base.del : null;
+    const [delPick] = pick3(delB, delL, delR, B !== null);
+    const del = delPick ? (rr.del || l.del) : 0;
+    const sameAsR = same({ ...m, upd: 0, total: 0 }, { ...R, upd: 0, total: 0 }) && !!del === delR;
+    if (sameAsR) { r[i] = rr; Vault.writeRecords(r); return true; }   // 合併後就是雲端版本：不用再上傳
+    if (conflict) {
+      await Cloud.saveRev(room, l.id, this.fields(l), "conflict");
+      toast(`另一支手機同時修改了「${m.name || "訂單"}」，有不同的地方。已先保留先同步的版本，請在訂單列表確認。`, true);
+    }
+    const rec = await Vault.seal(m);
+    Object.assign(rec, { del, ver: rr.ver, ut: rr.ut, dtsRaw: rr.dtsRaw, by: rr.by, rts: rr.rts, p: 1,
+      base: { iv: rr.iv, wk: rr.wk, ct: rr.ct, kid: rr.kid, upd: rr.upd, ver: rr.ver, del: rr.del, dtsRaw: rr.dtsRaw, by: rr.by, rts: rr.rts } });
+    r[i] = rec; Vault.writeRecords(r);
+    return true;
+  },
+  async mergePending(){
+    const m = this.merges(); if (!m.length) return false;
+    const rest = [];
+    for (const x of m) {
+      const r = Vault.records(), i = r.findIndex(y => y.id === x.id);
+      try {
+        const X = await Vault.open(x);
+        if (i < 0) { await Vault.put(X); continue; }
+        const H = await Vault.open(r[i]);
+        let B = null; if (x.base) { try { B = await Vault.open(x.base); } catch (e) {} }
+        const { m: M, conflict } = mergeOrder3(B, X, H);
+        if (same({ ...M, upd: 0, total: 0 }, { ...H, upd: 0, total: 0 })) continue;
+        if (conflict) toast(`另一支手機同時修改了「${M.name || "訂單"}」，請在訂單列表確認。`, true);
+        const rec = await Vault.seal(M);
+        const cur = r[i];
+        Object.assign(rec, { del: cur.del || 0, ver: cur.ver, ut: cur.ut, dtsRaw: cur.dtsRaw, by: cur.by, rts: cur.rts, p: 1,
+          base: cur.ut ? { iv: cur.iv, wk: cur.wk, ct: cur.ct, kid: cur.kid, upd: cur.upd, ver: cur.ver, del: cur.del || 0, dtsRaw: cur.dtsRaw, by: cur.by, rts: cur.rts } : undefined });
+        r[i] = rec; Vault.writeRecords(r);
+      } catch (e) { rest.push(x); }
+    }
+    localStorage.setItem(MERGE_KEY, JSON.stringify(rest));
+    return true;
+  },
+  /* 刪除超過 30 天的，雲端與手機都清掉（雲端以伺服器記下的刪除時間為準） */
+  async purgeOld(room, docs){
+    const lim = Date.now() - TRASH_DAYS * DAY - 3600 * 1000;
+    const old = docs.filter(d => ORDER_ID.test(d.id) && d.data.del && d.data.dts && d.data.dts < lim);
+    for (const d of old.slice(0, 100)) { try { await Cloud.commit([Cloud.del(`/rooms/${room}/orders/${d.id}`)]); } catch (e) {} }
+    Vault.prune();
+  },
+  /* 換到另一個房間（舊版升級、店家密碼更換）或重新加入 */
+  async switchTo(room, meta, pw, legacy){
+    const c = this.cfg();
+    if (Vault.exists()) await Vault.adopt(meta, pw); else await Vault.install(meta, pw, Vault.legacy());
+    let known;
+    if (c.room !== room) {
+      const r = Vault.records();
+      // 更換密碼：舊房間的資料都已經搬到新房間，新房間沒有的代表已刪除 → 放到最近刪除，不重新上傳
+      if (c.v2) known = r.filter(x => x.ut && !x.p).map(x => x.id);
+      r.forEach(x => { delete x.ut; delete x.ver; delete x.gone; delete x.dtsRaw; });   // 上一版內容（base）保留：衝突時仍可三方比較
+      Vault.writeRecords(r);
+    }
+    const n = { ...this.cfg(), room, member: room, v2: true, need: "", legacy: legacy || "", cursor: c.room === room ? c.cursor : 0 };
+    if (c.room !== room) { if (known) n.known = known; else delete n.known; }
+    this.saveCfg(n);
+    this.lastFull = 0;
+    try { await StockCfg.join(room, pw, meta, legacy); } catch (e) {}
+  },
+  /* 輸入密碼解鎖時順便確認這支手機已加入新版房間（舊版升級，背景完成） */
+  async ensureMember(pw){
+    const c = this.cfg();
+    if (!c.room || (c.v2 && c.member === c.room && StockCfg.get().member === c.room)) return;
     try {
-      const room = this.cfg().room;
-      for (const id of this.cfg().dels || []) {
-        await this.api("DELETE", `/rooms/${room}/orders/${id}`);
-        const c = this.cfg(); c.dels = (c.dels || []).filter(x => x !== id); this.saveCfg(c);
-      }
-      for (const r of Vault.records().filter(r => r.p)) { await this.api("PATCH", `/rooms/${room}/orders/${r.id}`, this.doc(r)); Vault.markPushed(r.id); }
-      const remote = await this.listAll(room);
-      const { changed, removed } = await Vault.mergeRemote(remote, this.known());
-      for (const r of Vault.records().filter(r => r.p)) { await this.api("PATCH", `/rooms/${room}/orders/${r.id}`, this.doc(r)); Vault.markPushed(r.id); }
-      this.saveCfg({ ...this.cfg(), known: Vault.records().map(r => r.id) });
-      this.last = Date.now(); this.state = "ok";
-      if ((changed.length || removed.length) && Vault.orders && modal.classList.contains("show")) {
-        if (sheet.dataset.sub === "list") showOrders(); else if (sheet.dataset.sub === "prep") showPrep();
-      }
-    } catch (e) { this.state = navigator.onLine ? "err" : "off"; }
-    finally { this.busy = false; this.paint(); if (this.again) { this.again = false; this.soon(); } }
+      const r = await Cloud.enter(pw);
+      if (r.state === "retired") { this.upd({ need: c.rotating ? "rotating" : "retired" }); this.paint(); return; }
+      if (!r.meta) return;
+      await this.switchTo(r.room, r.meta, pw, r.legacy);
+      this.run();
+    } catch (e) {}
   },
   label(){
-    const t = this.last ? new Date(this.last).toTimeString().slice(0, 5) : "";
-    return { busy: "同步中…", off: "離線，有網路後會自動同步", err: "同步失敗，稍後自動重試", ok: `已同步 ${t}` }[this.state] || "等待同步";
+    if (this.need()) return NEED_TEXT[this.need()] || "需要輸入店家密碼";
+    const n = this.pending(), t = this.last ? hm(this.last) : "";
+    if (this.state === "off") return n ? `離線中，${n} 筆已存在這支手機，有網路後自動上傳` : "離線中，有網路後會自動同步";
+    if (this.state === "err") return n ? `上傳失敗，${n} 筆已存在這支手機，稍後自動重試` : "同步失敗，稍後自動重試";
+    if (this.state === "busy") return "同步中…";
+    if (this.state === "ok") return n ? `${n} 筆等待上傳` : `已同步 ${t}`;
+    return "等待同步";
   },
   paint(){
-    const p = document.getElementById("syncPill");
+    const p = $("syncPill");
     if (!this.on()) { p.hidden = true; return; }
     p.hidden = false;
-    p.className = "sync-pill " + (this.state || "");
-    p.textContent = { busy: "同步中", off: "離線", err: "未同步", ok: "已同步" }[this.state] || "同步";
-    const box = document.getElementById("syncLine"); if (box) box.textContent = this.label();
+    const st = this.need() ? "err" : this.state, n = this.pending();
+    p.className = "sync-pill " + (st || "");
+    p.textContent = this.need() ? "未同步" : st === "busy" ? "同步中" : st === "off" ? (n ? `離線・${n} 筆待傳` : "離線") : st === "err" ? (n ? `${n} 筆未上傳` : "未同步") : st === "ok" ? (n ? `${n} 筆待傳` : "已同步") : "同步";
+    const box = $("syncLine"); if (box) box.textContent = this.label();
   },
 };
-document.getElementById("syncPill").onclick = () => Sync.run();
-setInterval(() => { if (!document.hidden) Sync.run(); }, 20000);
+$("syncPill").onclick = () => Sync.need() ? rejoinDialog() : Sync.run();
+setInterval(() => { if (!document.hidden) Sync.run(); }, POLL_MS);
 window.addEventListener("online", () => Sync.run());
+window.addEventListener("offline", () => { Sync.state = "off"; Sync.paint(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.run(); });
 
+
+function refreshOrderView(){
+  if (!Vault.orders || !modal.classList.contains("show")) return;
+  const s = sheet.dataset.sub;
+  if (s === "list") showOrders(true); else if (s === "prep") showPrep(); else if (s === "manage") showManage();
+}
+
+/* 需要重新輸入店家密碼（舊版升級、密碼已更換、被停用） */
+async function rejoinDialog(reason){
+  const need = (typeof reason === "string" && reason) || Sync.need();
+  if (need === "rotating") { rotateFlow(); return; }
+  const msg = {
+    retired: "店家密碼已經在另一支手機更換。請輸入新的店家密碼，這支手機還沒上傳的訂單會一起帶過去。",
+    revoked: "這支手機的同步已被其他手機停用。輸入店家密碼可以重新加入。",
+    join: "這次更新需要再輸入一次店家密碼，之後這支手機會記住，不用再輸入。",
+  }[need] || "請輸入店家密碼。";
+  const ok = await askPassword({ title: need === "retired" ? "輸入新的店家密碼" : "輸入店家密碼", msg, ok: "繼續", cancel: "稍後",
+    check: async pw => {
+      if (!navigator.onLine) return "需要網路，請連上網路再試";
+      const r = await Cloud.enter(pw);
+      if (r.state === "retired") return "這是已經換掉的舊密碼，請輸入新的店家密碼";
+      if (r.state === "none") return "找不到使用這組密碼的店家，請確認有沒有打錯";
+      await Sync.switchTo(r.room, r.meta, pw, r.legacy);
+      return true;
+    } });
+  if (!ok) return;
+  toast("已加入店家同步");
+  await Sync.run();
+  refreshOrderView();
+}
+
 /* 店家密碼：第一次使用、或把這支手機加入同步 */
-const pwField = (id, ph) => `<input class="pw-in" id="${id}" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" placeholder="${ph}">`;
-function storeDialog(carry, intro){
+function storeDialog(carry, intro, carryTrash){
   return new Promise(resolve => {
     const done = v => { closeDlg(); resolve(v); };
+    const finish = async (r, pw) => {
+      await Vault.install(r.meta, pw, carry, carryTrash);
+      Sync.saveCfg({ ...Sync.cfg(), room: r.room, member: r.room, v2: true, need: "", cursor: 0, legacy: r.legacy || "" });
+      Sync.lastFull = 0;
+      try { await StockCfg.join(r.room, pw, r.meta, r.legacy); } catch (e) {}
+    };
     const step1 = () => {
       dlgBox.innerHTML = `<h4>輸入店家密碼</h4>
         <p>${intro || ""}其他手機已經在用的話，輸入同一組密碼就會自動同步訂單；第一次建立請自己設定一組（至少 8 碼，忘記就無法找回）。</p>
         ${pwField("spw", "店家密碼")}<div class="dlg-err" id="pwErr"></div>
         <div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn" data-yes>下一步</button></div>`;
       dlg.classList.add("show");
-      const inp = document.getElementById("spw"), err = document.getElementById("pwErr"), yes = dlgBox.querySelector("[data-yes]");
+      const inp = $("spw"), err = $("pwErr"), yes = dlgBox.querySelector("[data-yes]");
       setTimeout(() => inp.focus(), 50);
       dlgBox.querySelector("[data-no]").onclick = () => done(false);
       const go = async () => {
@@ -1096,38 +1304,36 @@ function storeDialog(carry, intro){
         if (!navigator.onLine) { err.textContent = "第一次設定需要網路，請連上網路再試"; return; }
         yes.disabled = true; err.textContent = "連線中…";
         try {
-          const room = await Sync.roomId(pw);
-          const meta = await Sync.getMeta(room);
-          if (meta) {
-            err.textContent = "加入中…";
-            await Vault.install(meta, pw, carry);
-            Sync.saveCfg({ ...Sync.cfg(), room, known: [] });
-            done("joined");
-          } else step2(pw, room);
+          const r = await Cloud.enter(pw);
+          if (r.state === "retired") { yes.disabled = false; err.textContent = "這是已經換掉的舊密碼，請輸入新的店家密碼"; return; }
+          if (r.meta) { err.textContent = "加入中…"; await finish(r, pw); done("joined"); }
+          else step2(pw);
         } catch (e) { yes.disabled = false; err.textContent = "連不上同步伺服器，請確認網路後再試"; }
       };
       inp.onkeydown = e => { if (e.key === "Enter") go(); };
       yes.onclick = go;
     };
-    const step2 = (pw, room) => {
+    const step2 = pw => {
       dlgBox.innerHTML = `<h4>建立新的店家同步</h4>
         <p>找不到使用這組密碼的店家，會用它建立新的。如果其他手機已經在用，請按「返回」確認密碼有沒有打錯。</p>
         ${pwField("spw2", "再輸入一次店家密碼")}<div class="dlg-err" id="pwErr"></div>
         <div class="dlg-btns"><button type="button" class="btn ghost" data-no>返回</button><button type="button" class="btn" data-yes>建立</button></div>`;
-      const inp = document.getElementById("spw2"), err = document.getElementById("pwErr"), yes = dlgBox.querySelector("[data-yes]");
+      const inp = $("spw2"), err = $("pwErr"), yes = dlgBox.querySelector("[data-yes]");
       setTimeout(() => inp.focus(), 50);
       dlgBox.querySelector("[data-no]").onclick = step1;
-      yes.onclick = async () => {
+      const go = async () => {
         if (inp.value !== pw) { err.textContent = "兩次輸入不一樣"; return; }
         yes.disabled = true; err.textContent = "建立中…";
         try {
           const meta = await Vault.makeMeta(pw, true);
-          await Sync.putMeta(room, meta);
-          await Vault.install(meta, pw, carry);
-          Sync.saveCfg({ ...Sync.cfg(), room, known: [] });
-          done("created");
+          const r = await Cloud.enter(pw, { create: true, newMeta: meta });
+          if (r.state === "retired" || !r.meta) throw new Error("retired");
+          await finish(r, pw);
+          done(r.state === "created" ? "created" : "joined");
         } catch (e) { yes.disabled = false; err.textContent = "建立失敗，請確認網路後再試"; }
       };
+      inp.onkeydown = e => { if (e.key === "Enter") go(); };
+      yes.onclick = go;
     };
     step1();
   });
@@ -1139,14 +1345,14 @@ async function afterStore(r, n){
   return true;
 }
 
+
 /* 自動鎖定：閒置 10 分鐘，或切到背景 1 分鐘 */
 let idleTimer = null, hideTimer = null;
 function autoLock(){
   if (!Vault.priv) return;
+  // 閒置時關掉訂單畫面、清掉記憶體裡的訂單；金鑰仍記在這支手機，再打開不用輸入密碼
   Vault.lock();
   if (modal.classList.contains("show") && sheet.dataset.view === "orders") modal.classList.remove("show");
-  closeDlg();
-  toast("訂單已自動鎖定");
 }
 function armIdle(){ clearTimeout(idleTimer); if (Vault.priv) idleTimer = setTimeout(autoLock, 10 * 60 * 1000); }
 ["pointerdown", "keydown"].forEach(ev => document.addEventListener(ev, armIdle, { passive: true }));
@@ -1176,13 +1382,18 @@ document.getElementById("titleSeg").addEventListener("click", e => {
   const b = e.target.closest("button[data-t]"); if (!b) return;
   title = b.dataset.t;
   document.querySelectorAll("#titleSeg button").forEach(x => { const on = x === b; x.classList.toggle("on", on); x.setAttribute("aria-checked", on); });
+  if (cleanSurname(document.getElementById("surname").value)) showErr("nameErr", false, "surname");
 });
 /* 姓氏只留文字，去掉符號、空白、數字 */
 function cleanSurname(v){ return String(v || "").replace(/<[^>]*>?/g, "").replace(/[^\p{L}]/gu, "").slice(0, 4); }
 
 /* 檢查表單：錯誤都顯示在欄位旁，並捲到第一個錯誤 */
 const $id = id => document.getElementById(id);
-function showErr(id, on, msg){ const el = $id(id); if (msg) el.textContent = msg; el.style.display = on ? "block" : "none"; }
+function showErr(id, on, msg){
+  const el = $id(id); if (msg) el.textContent = msg; el.style.display = on ? "block" : "none";
+  const f = $id({ nameErr: "surname", phoneErr: "phone", dateErr: "dateBtn", addrErr: "addr" }[id] || "");
+  if (f) { f.setAttribute("aria-invalid", on ? "true" : "false"); const ln = f.closest(".line"); if (ln) ln.classList.toggle("bad", on); }
+}
 function validate(){
   const surname = cleanSurname($id("surname").value);
   $id("surname").value = surname;
@@ -1210,6 +1421,9 @@ function validate(){
 $id("surname").addEventListener("input", () => { if (cleanSurname($id("surname").value) && title) showErr("nameErr", false); });
 $id("titleSeg").addEventListener("click", () => { if (cleanSurname($id("surname").value)) showErr("nameErr", false); });
 $id("phone").addEventListener("input", () => { if (/^09\d{8}$/.test($id("phone").value.replace(/\D/g, ""))) showErr("phoneErr", false); });
+/* 鍵盤的「下一步／完成」 */
+$id("surname").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); title ? $id("phone").focus() : e.target.blur(); } });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches && e.target.matches('#phone, #deposit, .pin input')) { e.preventDefault(); e.target.blur(); } });
 
 const modal = document.getElementById("modal"), sheet = document.getElementById("sheet");
 modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("show"); });
@@ -1330,7 +1544,7 @@ function showSaveResult(order, state, edited){
   };
   document.getElementById("nextOrder").onclick = async () => {
     if (!ok && !(await askConfirm({ title: "放棄這筆訂單？", msg: "這筆沒有儲存，離開後就找不回來了。", ok: "放棄", danger: true }))) return;
-    location.reload();
+    navigator.onLine ? location.reload() : resetForm();   // 離線時重新整理會打不開頁面，改成直接清空表單
   };
 }
 
@@ -1389,10 +1603,11 @@ function fillForm(o){
 }
 
 document.getElementById("cancelEdit").onclick = async () => {
-  if (await askConfirm({ title: "取消修改？", msg: "剛才改的內容不會儲存，原本的訂單不變。", ok: "取消修改" })) location.reload();
+  if (await askConfirm({ title: "取消修改？", msg: "剛才改的內容不會儲存，原本的訂單不變。", ok: "取消修改" })) navigator.onLine ? location.reload() : resetForm();
 };
 const paintNet = () => { $id("netBar").hidden = navigator.onLine; };
 window.addEventListener("online", paintNet); window.addEventListener("offline", paintNet); paintNet();
+
 
 /* 打開訂單列表：沒設密碼先設定，有設定就要解鎖 */
 async function openOrders(){
@@ -1401,24 +1616,27 @@ async function openOrders(){
     const legacy = Vault.legacy();
     const r = await storeDialog(legacy, legacy.length ? `這支手機有 ${legacy.length} 筆舊訂單，會一起加密上傳。` : "");
     if (!(await afterStore(r, legacy.length))) return;
-  } else if (!Vault.priv) {
+  } else if (!Vault.priv && !(await Vault.autoUnlock())) {
     if (!(await unlockDialog())) return;
   }
   showOrders();
 }
 
-function showOrders(){
+function showOrders(keepScroll){
   if (!Vault.orders) { openOrders(); return; }
   armIdle();
+  const scrollAt = sheet.scrollTop;
   const all = Vault.orders;
   sheet.dataset.view = "orders"; sheet.dataset.sub = "list";
   sheet.innerHTML = `<div class="list-head"><h3>訂單列表</h3><button type="button" class="link-btn" id="lockNow">鎖定</button></div>
     ${all.length ? `<button type="button" class="btn ghost prep-open" id="openPrep">${ICON.list}當天備料統計</button>` : ""}
-    ${Sync.on() ? `<div class="sync-box"><span>雲端同步：<b id="syncLine">${escapeHtml(Sync.label())}</b>${(() => { const n = Vault.records().filter(r => r.p).length; return n ? `<br><span class="pend-n">有 ${n} 筆還沒同步</span>` : ""; })()}</span><button type="button" class="link-btn" id="syncNow">立即同步</button></div>`
+    ${Sync.on() ? `<div class="sync-box"><span>雲端同步：<b id="syncLine">${escapeHtml(Sync.label())}</b></span>${Sync.need()
+        ? `<button type="button" class="link-btn" id="syncFix">輸入密碼</button>` : `<button type="button" class="link-btn" id="syncNow">立即同步</button>`}</div>`
       : `<div class="sync-box cta"><b>開啟多支手機同步</b><br>設定一組店家密碼，所有手機的訂單就會自動同步。這支手機現有的 ${all.length} 筆訂單會一起加密上傳。
         <button type="button" class="btn" id="enableSync">開啟同步</button></div>`}
-    <p class="privacy">${Sync.on() ? "訂單加密後才同步到雲端，雲端只有亂碼。" : "訂單加密存在這支手機，不會上傳。"}電話預設遮蔽。</p>` +
+    <p class="privacy">${Sync.on() ? "訂單加密後才同步到雲端，雲端只有亂碼。" : "訂單加密存在這支手機，不會上傳。"}電話預設遮蔽。刪除的訂單 ${TRASH_DAYS} 天內可以復原。</p>` +
     (all.length ? all.map((o, i) => `<div class="order${hasPending(o.items) ? " pending" : ""}">
+      ${o.cf ? `<div class="pend-tag cf-tag">兩支手機同時修改了這筆，請確認<button type="button" class="link-btn" data-cf="${i}">比較版本</button></div>` : ""}
       ${hasPending(o.items) ? `<div class="pend-tag">${ICON.scale}有秤重品項還沒補金額</div>` : ""}
       <pre class="preview" data-pv="${i}"></pre>
       ${o.items.some(l => l.weigh) ? `<button type="button" class="btn small weigh-btn" data-weigh="${i}">${ICON.scale}補秤重金額</button>` : ""}
@@ -1429,38 +1647,45 @@ function showOrders(){
         <button type="button" class="link-btn" data-copy="${i}">複製</button>
         <button type="button" class="link-btn" data-reveal="${i}">顯示完整電話</button>
         <button type="button" class="link-btn" data-fullshare="${i}">${o.addr ? "含電話地址分享" : "含電話分享"}</button>
+        ${Sync.on() ? `<button type="button" class="link-btn" data-revs="${i}">歷史版本</button>` : ""}
         ${o.addr ? `<a class="link-btn" data-nav="${i}" target="_blank" rel="noopener noreferrer">導航</a>` : ""}
         <button type="button" class="del-btn" data-del="${i}">刪除</button></div></div>`).join("")
       : `<p class="note">還沒有訂單。送出第一筆後，會出現在這裡。</p>`) +
     (all.length > 1 ? `<div class="actions"><button type="button" class="btn ghost" id="copyAll">${ICON.copy}複製全部訂單（電話遮蔽）</button></div>` : "") +
     `<div class="actions"><button type="button" class="btn ghost" id="closeList">關閉</button></div>` +
-    (all.length ? `<div style="text-align:center;margin-top:8px"><button type="button" class="link-btn danger" id="clearAll">清除全部訂單</button></div>` : "");
+    `<div style="text-align:center;margin-top:8px"><button type="button" class="link-btn" id="openManage">最近刪除・備份與裝置</button>` +
+    (all.length ? `<br><button type="button" class="link-btn danger" id="clearAll">清除全部訂單</button>` : "") + `</div>`;
   modal.classList.add("show");
-  sheet.scrollTop = 0;
+  sheet.scrollTop = keepScroll ? scrollAt : 0;
   // 用 textContent 填入，避免注入
   sheet.querySelectorAll("[data-pv]").forEach(pre => pre.textContent = buildText(all[pre.dataset.pv]));
   const close = () => modal.classList.remove("show");
-  document.getElementById("closeList").onclick = close;
-  const op = document.getElementById("openPrep"); if (op) op.onclick = () => showPrep();
-  const sn = document.getElementById("syncNow"); if (sn) sn.onclick = () => Sync.run();
-  const es = document.getElementById("enableSync");
+  $("closeList").onclick = close;
+  $("openManage").onclick = () => showManage();
+  const op = $("openPrep"); if (op) op.onclick = () => showPrep();
+  const sn = $("syncNow"); if (sn) sn.onclick = () => Sync.run();
+  const sf = $("syncFix"); if (sf) sf.onclick = () => rejoinDialog();
+  const es = $("enableSync");
   if (es) es.onclick = async () => {
-    const carry = Vault.orders.slice();
-    const r = await storeDialog(carry, "之後看訂單改用店家密碼。");
+    const carry = Vault.orders.slice(), carryTrash = (Vault.trash || []).slice();
+    const r = await storeDialog(carry, "之後看訂單改用店家密碼。", carryTrash);
     if (await afterStore(r, carry.length)) showOrders();
   };
-  document.getElementById("lockNow").onclick = () => { Vault.lock(); close(); toast("訂單已鎖定"); };
+  $("lockNow").onclick = () => { Vault.lock(true); close(); toast("訂單已鎖定，下次查看要輸入店家密碼"); };
   sheet.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(buildText(all[b.dataset.copy]), b));
   sheet.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareText(buildText(all[b.dataset.share]), b));
   sheet.querySelectorAll("[data-weigh]").forEach(b => b.onclick = () => editWeigh(all[b.dataset.weigh]));
+  sheet.querySelectorAll("[data-cf]").forEach(b => b.onclick = () => showConflict(all[b.dataset.cf]));
+  sheet.querySelectorAll("[data-revs]").forEach(b => b.onclick = () => showRevs(all[b.dataset.revs]));
   sheet.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => fillForm(all[b.dataset.edit]));
   sheet.querySelectorAll("[data-nav]").forEach(a => a.href = navUrl(all[a.dataset.nav].addr));
   sheet.querySelectorAll("[data-reveal]").forEach(b => {
     let timer = null;
-    b.onclick = () => {
+    b.onclick = async () => {
       const i = b.dataset.reveal, pre = sheet.querySelector(`[data-pv="${i}"]`), showing = b.dataset.on === "1";
       clearTimeout(timer);
       if (showing) { pre.textContent = buildText(all[i]); b.textContent = "顯示完整電話"; b.dataset.on = ""; return; }
+      if (!(await phoneGate("reveal")) || !pre.isConnected) return;
       pre.textContent = buildText(all[i], { fullPhone: true }); b.textContent = "隱藏電話"; b.dataset.on = "1";
       timer = setTimeout(() => { if (pre.isConnected) { pre.textContent = buildText(all[i]); b.textContent = "顯示完整電話"; b.dataset.on = ""; } }, 20000);
     };
@@ -1473,17 +1698,18 @@ function showOrders(){
   sheet.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     const o = all[b.dataset.del];
     if (await askConfirm({ title: "刪除這筆訂單？", ok: "刪除", danger: true,
-      msg: `${o.name}・取貨 ${fmtDate(o.date)}。${Sync.on() ? "其他手機也會一起刪除，" : ""}刪除後無法復原。` })) { Vault.remove(o.id); toast("已刪除"); showOrders(); }
+      msg: `${o.name}・取貨 ${fmtDate(o.date)}。${Sync.on() ? "其他手機也會一起刪除。" : ""}${TRASH_DAYS} 天內可以在「最近刪除」復原。` })) { Vault.remove(o.id); toast("已刪除，可以在「最近刪除」復原"); showOrders(); }
   });
-  const ca = document.getElementById("copyAll");
+  const ca = $("copyAll");
   if (ca) ca.onclick = () => copyText(all.map(o => buildText(o)).join("\n\n══════════════\n\n"), ca);
-  const cl = document.getElementById("clearAll");
+  const cl = $("clearAll");
   if (cl) cl.onclick = async () => {
-    const a = await askConfirm({ title: "清除全部訂單？", ok: "繼續", danger: true, msg: Sync.on() ? `所有同步的手機上的 ${all.length} 筆訂單和客人電話都會刪除。` : `這支手機上的 ${all.length} 筆訂單和客人電話都會刪除。` });
-    const b2 = a && await askConfirm({ title: "再確認一次", ok: "永久刪除全部", danger: true, msg: "刪除後無法復原。確定要清除全部訂單嗎？" });
-    if (b2) { Vault.clearOrders(); toast("已清除全部訂單"); showOrders(); }
+    const a = await askConfirm({ title: "清除全部訂單？", ok: "繼續", danger: true, msg: Sync.on() ? `所有同步的手機上的 ${all.length} 筆訂單都會移到「最近刪除」。` : `這支手機上的 ${all.length} 筆訂單都會移到「最近刪除」。` });
+    const b2 = a && await askConfirm({ title: "再確認一次", ok: "清除全部", danger: true, msg: `${TRASH_DAYS} 天內可以在「最近刪除」復原，超過就會永久刪除。確定要清除全部訂單嗎？` });
+    if (b2) { await Backup.snapshot("before-clear"); Vault.clearOrders(); toast("已清除全部訂單，可以在「最近刪除」復原"); showOrders(); }
   };
 }
+
 
 /* 取貨當天：補上秤重後的實際金額 */
 function editWeigh(o){
@@ -1627,6 +1853,272 @@ function showPrep(){
   const cp = document.getElementById("prepCopy"); if (cp) cp.onclick = e => copyText(txt(), e.currentTarget);
 }
 
+
+/* ===== 完整電話：顯示前再確認一次 =====
+   金鑰記在這支手機，不用再輸入密碼；改成每次都要按確認，20 秒後自動隱藏。分享含電話另有確認，而且只用一次。 */
+async function phoneGate(kind){
+  if (kind !== "reveal") return true;
+  return askConfirm({ title: "顯示完整電話？", ok: "顯示", msg: "客人的完整手機號碼會顯示 20 秒，之後自動遮蔽。請確認旁邊沒有不相關的人。" });
+}
+
+/* ===== 衝突：比較兩個版本，選一個 ===== */
+async function showConflict(o){
+  const cf = o.cf; if (!cf || !cf.alt) return;
+  const alt = { ...cf.alt, id: o.id };
+  sheet.dataset.view = "orders"; sheet.dataset.sub = "conflict";
+  sheet.innerHTML = `<h3>兩支手機同時修改</h3>
+    <p class="note">${escapeHtml(cf.dev || "另一支手機")} 在 ${when(cf.at)} 合併時發現兩邊改了同一個地方（${cf.fields.map(f => escapeHtml(ORDER_FIELD[f] || f)).join("、")}）。目前先用「先同步的版本」，請確認要保留哪一個。</p>
+    <p class="prep-cat">目前的版本（先同步）</p><pre class="preview" id="cfA"></pre>
+    <p class="prep-cat">另一個版本</p><pre class="preview" id="cfB"></pre>
+    <div class="actions"><button type="button" class="btn ghost" id="cfKeep">保留目前的</button><button type="button" class="btn" id="cfUse">改用另一個</button></div>
+    <div class="actions"><button type="button" class="btn ghost" id="cfBack">回訂單列表</button></div>`;
+  sheet.scrollTop = 0;
+  const cur = { ...o }; delete cur.cf;
+  $("cfA").textContent = buildText(cur); $("cfB").textContent = buildText(alt);
+  $("cfBack").onclick = () => showOrders();
+  $("cfKeep").onclick = async () => { await Vault.put(cur); toast("已保留目前的版本"); showOrders(); };
+  $("cfUse").onclick = async () => { await Vault.put(alt); toast("已改用另一個版本（原本的版本存在歷史版本）"); showOrders(); };
+}
+
+/* ===== 歷史版本：雲端保存 30 天，可以比較、還原 ===== */
+async function showRevs(o){
+  sheet.dataset.view = "orders"; sheet.dataset.sub = "revs";
+  sheet.innerHTML = `<h3>歷史版本</h3><p class="note">讀取中…</p>`;
+  sheet.scrollTop = 0;
+  let list = [];
+  try {
+    if (!Sync.on()) throw new Error("off");
+    for (const d of await Cloud.revsOf(Sync.cfg().room, o.id)) {
+      try { list.push({ d, o: await Vault.open(Sync.fromDoc({ ...d, id: String(o.id) })) }); } catch (e) {}
+    }
+  } catch (e) {
+    sheet.innerHTML = `<h3>歷史版本</h3><p class="note">${Sync.on() ? "需要網路才能讀取歷史版本。" : "開啟多支手機同步後，修改前的版本會保存在雲端 30 天。"}</p>
+      <div class="actions"><button type="button" class="btn ghost" id="rvBack">回訂單列表</button></div>`;
+    $("rvBack").onclick = () => showOrders(); return;
+  }
+  const kindText = { prev: "修改前", conflict: "衝突時沒採用的版本", restore: "還原前" };
+  sheet.innerHTML = `<h3>歷史版本</h3><p class="note">${escapeHtml(o.name)}・取貨 ${fmtDate(o.date)}。保存 30 天，時間是伺服器時間。</p>
+    ${list.length ? list.map((x, i) => `<div class="order"><div class="pend-tag" style="color:var(--sub)">${when(x.d.data.ts)}・${escapeHtml(kindText[x.d.data.kind] || "舊版本")}・${escapeHtml(x.d.data.dev || "")}</div>
+      <pre class="preview" data-rv="${i}"></pre>
+      <div class="order-tools"><span></span><button type="button" class="link-btn" data-rvuse="${i}">還原這個版本</button></div></div>`).join("")
+      : `<p class="note">這筆訂單還沒有歷史版本。</p>`}
+    <div class="actions"><button type="button" class="btn ghost" id="rvBack">回訂單列表</button></div>`;
+  sheet.querySelectorAll("[data-rv]").forEach(pre => { const x = list[pre.dataset.rv].o; pre.textContent = buildText(x) + (list[pre.dataset.rv].d.data.del ? "\n（這個版本是已刪除狀態）" : ""); });
+  $("rvBack").onclick = () => showOrders();
+  sheet.querySelectorAll("[data-rvuse]").forEach(b => b.onclick = async () => {
+    const x = list[b.dataset.rvuse];
+    if (!(await askConfirm({ title: "還原這個版本？", ok: "還原", msg: `改回 ${when(x.d.data.ts)} 的內容。目前的內容會保留在歷史版本，之後還能改回來。` }))) return;
+    const n = { ...x.o, id: o.id }; delete n.cf;
+    await Vault.put(n); toast("已還原"); showOrders();
+  });
+}
+
+/* ===== 最近刪除・備份與裝置 ===== */
+async function showManage(){
+  if (!Vault.orders) { openOrders(); return; }
+  armIdle();
+  sheet.dataset.view = "orders"; sheet.dataset.sub = "manage";
+  const on = Sync.on(), trash = Vault.trash || [];
+  const snaps = await Backup.list();
+  let devs = null, me = "", clouds = null;
+  if (on && navigator.onLine && !Sync.need()) {
+    try { me = await Cloud.uid(); devs = await Cloud.members(Sync.cfg().room); } catch (e) {}
+    try { clouds = await Cloud.backupSets(Sync.cfg().room); } catch (e) {}
+  }
+  const sub = s => `<br><small style="color:var(--sub);font-size:13px">${s}</small>`;
+  const row = (left, btn) => `<div class="row" style="align-items:center"><span style="color:var(--ink)">${left}</span>${btn || ""}</div>`;
+  sheet.innerHTML = `<h3>最近刪除・備份與裝置</h3>
+    <p class="prep-cat">最近刪除（${TRASH_DAYS} 天內可以復原）</p>
+    ${trash.length ? `<div class="rows">${trash.map((t, i) => row(`${escapeHtml(t.o.name)}・取貨 ${fmtDate(t.o.date)}${sub("刪除於 " + when(t.del))}`,
+        `<button type="button" class="link-btn" data-undel="${i}">復原</button>`)).join("")}</div>
+      ${trash.length > 1 ? `<button type="button" class="btn ghost prep-open" id="undelAll">全部復原</button>` : ""}` : `<p class="note">沒有刪除的訂單。</p>`}
+    <p class="prep-cat">加密備份</p>
+    <div class="sync-btns"><button type="button" class="btn ghost" id="bkExport">${ICON.download}匯出備份檔</button>
+      <label class="btn ghost file-btn">從備份檔復原<input type="file" id="bkFile" accept=".json,application/json"></label></div>
+    <p class="note">備份都是加密的。復原只會補回沒有或已刪除的資料，不會蓋掉現在的訂單。</p>
+    ${on ? `<p class="prep-cat">雲端每日備份（保留 90 天，任何手機都不能修改或刪除）</p>
+      ${clouds ? (clouds.length ? `<div class="rows">${clouds.slice(0, 7).map(c => row(`${when(c.ts)}・${escapeHtml(c.dev || "")}${sub(`共 ${c.nd} 筆資料`)}`,
+        `<button type="button" class="link-btn" data-cloud="${escapeHtml(c.set)}">復原</button>`)).join("")}</div>` : `<p class="note">還沒有雲端備份，同步後會自動建立。</p>`)
+        : `<p class="note">${navigator.onLine ? "目前無法讀取雲端備份。" : "離線中，連上網路後才能看到雲端備份。"}</p>`}` : ""}
+    <p class="prep-cat">這支手機的自動備份</p>
+    ${snaps.length ? `<div class="rows">${snaps.slice(0, 6).map(s => row(`${when(s.at)}・${Backup.label(s.kind)}${sub(`訂單 ${s.nOrders || 0} 筆・剩貨 ${s.nStock || 0} 筆`)}`,
+        `<button type="button" class="link-btn" data-snap="${escapeHtml(s.key)}">復原</button>`)).join("")}</div>` : `<p class="note">還沒有自動備份。</p>`}
+    ${on ? `<p class="prep-cat">同步的裝置</p>
+      ${devs ? `<div class="rows">${devs.sort((a, b) => (a.revoked - b.revoked) || (b.seen - a.seen)).map(d => row(
+          `${escapeHtml(d.name || "裝置")}${d.uid === me ? "（這支）" : ""}${sub(d.revoked ? "已停用 " + when(d.revokedAt) : "最後使用 " + when(d.seen))}`,
+          !d.revoked && d.uid !== me ? `<button type="button" class="link-btn danger" data-revoke="${escapeHtml(d.uid)}" data-name="${escapeHtml(d.name || "裝置")}">停用</button>` : "")).join("")}</div>`
+        : `<p class="note">${Sync.need() ? escapeHtml(Sync.label()) + "。" : navigator.onLine ? "目前無法讀取裝置列表。" : "離線中，連上網路後才能看到裝置列表。"}</p>`}
+      <button type="button" class="btn ghost prep-open" id="rotatePw">更換店家密碼</button>
+      <p class="note">知道店家密碼的手機都能加入。手機遺失時，請按那支手機的「停用」並選「停用並更換密碼」，拿到手機的人就無法再讀取。</p>` : ""}
+    <div class="actions"><button type="button" class="btn ghost" id="mBack">回訂單列表</button></div>`;
+  modal.classList.add("show");
+  $("mBack").onclick = () => showOrders();
+  sheet.querySelectorAll("[data-undel]").forEach(b => b.onclick = () => { Vault.restore([trash[b.dataset.undel].o.id]); toast("已復原"); showManage(); });
+  const ua = $("undelAll"); if (ua) ua.onclick = () => { Vault.restore(trash.map(t => t.o.id)); toast(`已復原 ${trash.length} 筆`); showManage(); };
+  $("bkExport").onclick = async () => {
+    try { if (await Backup.exportFile()) { localStorage.setItem("exportAt", String(Date.now())); toast("已匯出加密備份檔，請存到安全的地方"); } }
+    catch (e) { toast(e.message === "nometa" ? "還沒有設定密碼，無法匯出加密備份" : "匯出失敗，請再試一次", true); }
+  };
+  $("bkFile").onchange = async e => {
+    const f = e.target.files && e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    let data; try { data = Backup.parse(await f.text()); } catch (x) { toast("這不是訂購頁的備份檔", true); return; }
+    await restoreBackup(data);
+  };
+  sheet.querySelectorAll("[data-snap]").forEach(b => b.onclick = async () => { const d = await Backup.get(b.dataset.snap); if (d) await restoreBackup(d); });
+  sheet.querySelectorAll("[data-cloud]").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "讀取中…";
+    try { await restoreBackup(await Backup.fromCloud(Sync.cfg().room, b.dataset.cloud, await StockCfg.key(Sync.cfg().room))); }
+    catch (e) { toast("雲端備份讀取失敗（" + (e.message === "checksum" ? "內容檢查不符" : "請確認網路") + "）", true); showManage(); }
+  });
+  sheet.querySelectorAll("[data-revoke]").forEach(b => b.onclick = () => revokeFlow(b.dataset.revoke, b.dataset.name));
+  const rp = $("rotatePw"); if (rp) rp.onclick = () => rotateFlow();
+}
+
+/* 停用裝置：只停用（家人換手機）或停用並更換密碼（手機遺失） */
+function revokeFlow(uid, name){
+  dlgBox.innerHTML = `<h4>停用「${escapeHtml(name)}」？</h4>
+    <p>停用後這支裝置會立刻無法讀取和上傳訂單、剩貨。<br>但知道店家密碼的人還是可以重新加入，所以<b>手機遺失或被拿走時，請選「停用並更換密碼」</b>。</p>
+    <div class="dlg-btns" style="flex-direction:column;gap:8px">
+      <button type="button" class="btn danger" data-rot>停用並更換密碼（手機遺失）</button>
+      <button type="button" class="btn ghost" data-only>只停用這支</button>
+      <button type="button" class="btn ghost" data-no>取消</button></div>`;
+  dlg.classList.add("show");
+  const doRevoke = async () => {
+    try { await Cloud.revoke(Sync.cfg().room, uid); return true; } catch (x) { toast("停用失敗，請確認網路後再試", true); return false; }
+  };
+  dlgBox.querySelector("[data-no]").onclick = closeDlg;
+  dlgBox.querySelector("[data-only]").onclick = async () => { closeDlg(); if (await doRevoke()) toast("已停用"); showManage(); };
+  dlgBox.querySelector("[data-rot]").onclick = async () => { closeDlg(); if (await doRevoke()) { toast("已停用，接著請設定新的店家密碼"); rotateFlow(true); } };
+}
+
+/* 從備份復原：只補回手機上沒有（或已刪除）的訂單與剩貨，不覆蓋現有資料 */
+async function restoreBackup(data){
+  let keys = null;
+  const cur = Vault.meta();
+  if (Vault.keys && data.meta && cur && await kidOf(data.meta) === await kidOf(cur)) keys = Vault.keys;
+  if (!keys) {
+    if (!data.meta) { toast("這份備份沒有金鑰，無法復原", true); return; }
+    keys = await askPassword({ title: "輸入備份的店家密碼", min: data.meta.shared ? 8 : 4, ok: "復原",
+      msg: `這份備份建立於 ${when(data.at)}。請輸入當時使用的店家密碼。`,
+      check: async pw => (await Backup.keys(data.meta, pw)) || "密碼不正確" });
+    if (!keys) return;
+  }
+  await Backup.snapshot("before-restore");
+  const local = new Map(Vault.records().map(r => [r.id, r]));
+  let n = 0, bad = 0;
+  for (const rec of data.orders || []) {
+    if (rec.del) continue;
+    const l = local.get(rec.id);
+    if (l && !l.del) continue;
+    if (l && l.del) { Vault.restore([rec.id]); n++; continue; }
+    try { const o = await Backup.openRec(keys, rec); o.id = rec.id; await Vault.put(o); n++; } catch (e) { bad++; }
+  }
+  let s = 0;
+  try { s = Backup.restoreStock(await Backup.openStock(keys, data), !!StockCfg.get().room); } catch (e) {}
+  await Vault.reload();
+  toast(n || s ? `已復原 ${n} 筆訂單${s ? `、${s} 筆剩貨` : ""}${bad ? `（${bad} 筆無法解開）` : ""}` : "備份裡的資料這支手機都已經有了");
+  Sync.soon();
+  showManage();
+}
+
+/* ===== 更換店家密碼（金鑰輪替） ===== */
+function rotateFlow(lost){
+  if (!Sync.on()) { toast("開啟多支手機同步後才能更換店家密碼", true); return; }
+  if (!navigator.onLine) { toast("更換店家密碼需要網路", true); return; }
+  const resuming = !!Sync.cfg().rotating;
+  dlgBox.innerHTML = `<h4>${resuming ? "繼續更換店家密碼" : "更換店家密碼"}</h4>
+    <p>${resuming ? "上次更換還沒完成，請輸入同樣的舊密碼和新密碼繼續。" : (lost ? "已停用遺失的手機。" : "") + "更換後，其他手機要輸入新密碼才能繼續同步；舊密碼和被停用的手機都無法再讀取。訂單會用新金鑰重新加密，過程中請保持網路連線。"}</p>
+    ${pwField("rp0", "目前的店家密碼")}${pwField("rp1", "新的店家密碼（至少 8 碼）")}${pwField("rp2", "再輸入一次新密碼")}
+    <div class="dlg-err" id="rpErr"></div>
+    <div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn danger" data-yes>更換</button></div>`;
+  dlg.classList.add("show");
+  setTimeout(() => $("rp0").focus(), 50);
+  const err = $("rpErr"), yes = dlgBox.querySelector("[data-yes]");
+  dlgBox.querySelector("[data-no]").onclick = closeDlg;
+  yes.onclick = async () => {
+    const p0 = $("rp0").value, p1 = $("rp1").value, p2 = $("rp2").value;
+    if (p1.length < 8) { err.textContent = "新密碼至少 8 碼"; return; }
+    if (p1 !== p2) { err.textContent = "兩次輸入的新密碼不一樣"; return; }
+    if (p1 === p0) { err.textContent = "新密碼不能和目前的一樣"; return; }
+    yes.disabled = true; err.textContent = "確認密碼…";
+    if (!(await Vault.verify(p0))) { yes.disabled = false; err.textContent = "目前的店家密碼不正確"; return; }
+    try {
+      await rotatePassword(p0, p1, s => { err.textContent = s; });
+      closeDlg();
+      toast("已更換店家密碼。其他手機下次同步時會請你輸入新密碼");
+      showManage();
+    } catch (e) {
+      yes.disabled = false;
+      err.textContent = { taken: "這組新密碼不能使用（可能以前用過），請換一組", pending: "還有資料沒同步完成，請確認網路後再試",
+        verify: "搬移資料沒有完成，請保持網路後再按一次「更換」繼續", retired: "店家密碼已經被另一支手機更換了" }[e && e.message]
+        || "更換沒有完成，請確認網路後再按一次「更換」繼續（資料不會遺失）";
+    }
+  };
+}
+async function rotatePassword(oldPw, newPw, say){
+  const oldRoom = Sync.cfg().room;
+  say("同步最新資料…");
+  if ((await roomOf(oldPw)).room !== oldRoom) throw new Error("pw");
+  const rd0 = await Cloud.room(oldRoom);
+  if (rd0 && rd0.retired && !Sync.cfg().rotating) throw new Error("retired");
+  if (!Sync.cfg().rotating) {
+    Sync.upd({ need: "" });
+    await Sync.run(true); await Sync.run(true);
+    if (Sync.need() || Vault.records().some(r => r.p) || Sync.merges().length) throw new Error("pending");
+    await Backup.snapshot("before-rotate");
+  }
+  say("產生新金鑰…");
+  const newRoom = (await roomOf(newPw)).room;
+  let meta;
+  const rot = Sync.cfg().rotating;
+  if (rot && rot.room === newRoom) {
+    const r = await Cloud.enter(newPw);
+    if (r.state !== "joined") throw new Error("taken");
+    meta = r.meta;
+  } else {
+    if (await Cloud.room(newRoom)) throw new Error("taken");
+    const ring = await Vault.rawKeys(Vault.meta(), oldPw);
+    if (!ring) throw new Error("pw");
+    const nm = await Vault.makeMeta(newPw, true, ring);
+    const r = await Cloud.enter(newPw, { create: true, newMeta: nm });
+    if (r.state !== "created") throw new Error("taken");   // 新密碼剛好是另一家舊版店家的密碼：不能用
+    meta = nm;
+    Sync.upd({ rotating: { room: newRoom } });
+  }
+  say("停用舊密碼…");
+  const rd = await Cloud.room(oldRoom);
+  if (!rd || !rd.retired) await Cloud.retire(oldRoom);
+  say("搬移資料…");
+  const docs = await Cloud.list(oldRoom);
+  const have = new Set((await Cloud.list(newRoom)).map(d => d.id));
+  const newPub = await crypto.subtle.importKey("jwk", meta.pub, RSA, false, ["wrapKey"]), newKid = await kidOf(meta);
+  const oldSK = await stockKeyOf(oldPw), newSK = await stockKeyOf(newPw), uid = await Cloud.uid();
+  let writes = [], n = 0;
+  for (const d of docs) {
+    if (d.id === "_meta" || have.has(d.id) || !d.data.ct) continue;
+    let iv = d.data.iv, ct = d.data.ct, kid = d.data.kid;
+    if (ORDER_ID.test(d.id)) {
+      try { const o = await Vault.open(Sync.fromDoc(d)); const s = await Vault.seal(o, newPub, newKid); iv = s.iv; ct = s.wk + "." + s.ct; kid = newKid; } catch (e) {}   // 解不開的照原樣搬，不遺失
+    } else if (STOCK_ID.test(d.id)) {
+      try { const s = await aesSeal(newSK, await aesOpen(oldSK, iv, ct)); iv = s.iv; ct = s.ct; } catch (e) {}
+    } else continue;
+    const del = d.data.del || 0;
+    writes.push(Cloud.write(`/rooms/${newRoom}/orders/${d.id}`, { iv, ct, upd: d.data.upd || 0, ver: 1, del, kid: kid || undefined, by: uid }, { stamp: del ? ["ts", "dts"] : true }));
+    n++;
+    if (writes.length >= 200) { await Cloud.commit(writes); writes = []; say(`搬移資料… ${n} 筆`); }
+  }
+  if (writes.length) await Cloud.commit(writes);
+  say("確認資料…");
+  const after = new Set((await Cloud.list(newRoom)).map(d => d.id));
+  if (docs.some(d => d.id !== "_meta" && d.data.ct && (ORDER_ID.test(d.id) || STOCK_ID.test(d.id)) && !after.has(d.id))) throw new Error("verify");
+  say("更新這支手機…");
+  await Sync.switchTo(newRoom, meta, newPw);
+  // 舊房間停用 7 天後才清除（規則也這樣限制），期間舊手機仍能把還沒上傳的資料帶過來
+  Sync.upd({ rotating: null, purge: { room: oldRoom, after: Date.now() + 7 * DAY + 3600 * 1000 }, need: "" });
+  await Sync.run(true);
+}
+
 document.getElementById("priceBtn").onclick = showPrices;
 document.getElementById("viewOrders").onclick = e => { e.preventDefault(); openOrders(); };
 
@@ -1634,9 +2126,17 @@ Sync.paint(); Sync.run();
 
 /* 開啟時：已設密碼的話，把舊版明碼訂單立刻加密（只需公鑰，不用輸入密碼） */
 if (Vault.supported() && Vault.exists() && Vault.legacy().length) Vault.migrateLegacy().catch(() => {});
+/* 每天自動留一份加密備份在這支手機 */
+if (Vault.supported()) Backup.snapshot("auto");
+/* 打開時用記住的金鑰自動解鎖（不用輸入密碼） */
+/* 舊版升級：有開同步但這支手機還沒加入新版房間，打開時請輸入一次店家密碼（每 12 小時最多問一次） */
+if (Vault.supported() && Vault.exists()) Vault.autoUnlock().then(ok => { if (ok && Sync.merges().length) Sync.soon(); }).catch(() => {});
+if (Sync.on() && !Sync.cfg().v2 && !Sync.need() && Date.now() - (Number(localStorage.getItem("upAsk")) || 0) > 12 * 3600 * 1000) {
+  localStorage.setItem("upAsk", String(Date.now()));
+  setTimeout(() => rejoinDialog("join"), 600);
+}
 
 /* ===== 取貨日期 ===== */
-function fmtDate(s){ if (!s) return ""; const [y, m, d] = s.split("-").map(Number); const dt = new Date(y, m - 1, d); return `${m}/${d}(${WK[dt.getDay()]})`; }
 const pdate = document.getElementById("pdate"), chipsBox = document.getElementById("dateChips");
 const dateBtn = document.getElementById("dateBtn"), dateLabel = document.getElementById("dateLabel");
 
@@ -1848,6 +2348,28 @@ document.getElementById("marketSeg").addEventListener("click", e => {
     `今天 ${d.getMonth() + 1}/${d.getDate()}（星期${WK[d.getDay()]}）` +
     `<small>${lunTxt}${tag ? "・" + tag : ""}</small>`;
 })();
+
+/* 清空表單準備下一筆（和重新整理後的畫面一樣；單價會保留） */
+function resetForm(){
+  Object.keys(qty).forEach(k => { qty[k] = 0; const s = document.getElementById("s-" + k); if (s) { s.querySelector(".q").textContent = 0; s.classList.remove("on"); } });
+  [amounts, pcPrice, want].forEach(o => Object.keys(o).forEach(k => delete o[k]));
+  document.querySelectorAll("#menu [data-amt], #menu [data-pcp]").forEach(i => i.value = "");
+  document.querySelectorAll("#menu [data-want]").forEach(b => b.classList.remove("on"));
+  ["surname", "phone", "memo", "ptime", "deposit", "addr"].forEach(id => document.getElementById(id).value = "");
+  title = ""; document.querySelectorAll("#titleSeg button").forEach(x => { x.classList.remove("on"); x.setAttribute("aria-checked", false); });
+  market = ""; document.querySelectorAll("#marketSeg button").forEach(x => x.classList.remove("on")); paintMarket();
+  pay = "none"; document.querySelectorAll("#paySeg button").forEach(x => x.classList.toggle("on", x.dataset.pay === "none"));
+  document.getElementById("depositBox").style.display = "none";
+  Object.assign(prep, { cut: "要切", pepper: "要", oil: "要", sauce: "要" });
+  document.querySelectorAll(".seg[data-group]").forEach(seg => seg.querySelectorAll("button").forEach((x, i) => x.classList.toggle("on", i === 0)));
+  ["nameErr", "phoneErr", "dateErr", "itemsErr", "addrErr"].forEach(id => showErr(id, false));
+  paintAddr(); fillTimes();
+  editing = null; $id("editBar").hidden = true;
+  setDate("");
+  modal.classList.remove("show");
+  update();
+  window.scrollTo({ top: 0 });
+}
 
 /* 打字時隱藏底部列，避免手機鍵盤彈出時畫面跳動 */
 document.addEventListener("focusin", e => { if (e.target.matches("input,textarea")) document.body.classList.add("typing"); });

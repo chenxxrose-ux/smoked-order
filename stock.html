@@ -331,6 +331,9 @@
   .seg.lvl{width:154px} .seg.lvl.l3{width:180px}
 
   .mk-warn{margin:10px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:15px;font-weight:500;text-align:center}
+  .cf-warn{text-align:left;font-weight:400;background:#FCE8E6;color:#8C1D18}
+  .cf-warn .cf-btns{display:flex;gap:8px;margin-top:8px}
+  .cf-warn .btn{flex:1;min-height:40px;font-size:14px}
   #mkSeg.need{box-shadow:0 0 0 2px #E2A33B}
   .mk-tag{color:var(--soy);font-weight:600}
   .mk-tag.none{color:#B26A00}
@@ -375,6 +378,7 @@
     <button type="button" data-m="ma">媽媽市場</button>
   </div>
   <div class="mk-warn" id="mkWarn">請先選擇市場，再開始填寫</div>
+  <div class="mk-warn cf-warn" id="cfWarn" hidden></div>
   <div id="list"></div>
   <h2 class="sec">備註</h2>
   <section class="card"><textarea class="note-in" id="note" rows="2" placeholder="其他要交代的"></textarea></section>
@@ -391,7 +395,13 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=1"></script>
+<script src="core.js?v=5"></script>
 <script>
+/* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
+if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
+  document.body.insertAdjacentHTML("afterbegin", '<p style="margin:0;padding:14px 16px;background:#B3261E;color:#fff;font-size:15px">程式檔 shared.js 或 core.js 沒有載入或版本太舊。請把 shared.js、core.js 和這個頁面放在同一個資料夾，然後重新整理。</p>');
+  throw new Error("core.js missing");
+}
 
 
 /* 備品（單位可以改這裡） */
@@ -423,11 +433,6 @@ MENU.forEach(sec => byLen(sec.items).forEach(it => {
 byLen(SUPPLIES.map(([n, u]) => ({ name: n, u }))).map(x => [x.name, x.u]).forEach(([n, u]) => ROWS.push({ cat: "備品", grp: n, key: `備品|${n}`, name: n, kind: "n", unit: u, bring: true }));
 const CAT_LABEL = { "備品": "要帶的備品" };   // 備品是要帶去攤位的，不是剩貨
 const catLabel = c => CAT_LABEL[c] || c;
-
-const $ = id => document.getElementById(id);
-const fmtDate = s => { const [y, m, d] = s.split("-").map(Number); return `${m}/${d}(${WK[new Date(y, m - 1, d).getDay()]})`; };
-let toastTimer;
-function toast(msg, err){ const t = $("toast"); t.textContent = msg; t.classList.toggle("err", !!err); t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), err ? 4000 : 2400); }
 
 /* ===== 畫面 ===== */
 function render(){
@@ -511,14 +516,26 @@ $("list").addEventListener("click", e => {
   document.querySelector(`[data-card="${CSS.escape(cat)}"]`).classList.toggle("folded", shut);
 });
 
-/* ===== 資料（每天＋市場一筆） ===== */
+/* ===== 資料（每天＋市場一筆） =====
+   每個品項各自記修改時間（t），兩支手機改不同品項時都會保留；刪除只是標記（del），30 天內可以復原。 */
 const LOCAL = "stockData";
+const ID_RE = /^inv_(\d{4}-\d{2}-\d{2})_(ba|ma)$/;
 let date = ymd(new Date()), mk = "";   // 每次打開都要自己選市場，避免記錯
 const docId = (d, m) => `inv_${d}_${m}`;
 function all(){ try { return JSON.parse(localStorage.getItem(LOCAL) || "{}"); } catch (e) { return {}; } }
 function saveAll(a){ localStorage.setItem(LOCAL, JSON.stringify(a)); }
-function cur(){ return all()[docId(date, mk)] || { v: {}, note: "", upd: 0 }; }
+const EMPTY = () => ({ v: {}, note: "", upd: 0 });
+function cur(){ const r = all()[docId(date, mk)]; return r && !r.del ? r : EMPTY(); }
 function clean(v, kind){ const n = Number(v); if (!Number.isFinite(n) || n <= 0) return 0; return kind === "w" ? Math.round(n * 10) / 10 : Math.min(Math.round(n), 99999); }
+/* 取出要修改的紀錄：記下共同的上一版（衝突合併用）；已刪除的就當作清空後重新開始 */
+function editRec(a, id){
+  const rec = a[id] || { v: {}, note: "", upd: 0 };
+  markStockEdit(rec, true);
+  if (rec.del) { rec.v = {}; rec.note = ""; rec.del = 0; }
+  rec.v = rec.v || {};
+  a[id] = rec;
+  return rec;
+}
 
 function fill(){
   const rec = cur();
@@ -530,13 +547,40 @@ function fill(){
   });
   if (document.activeElement !== $("note")) $("note").value = rec.note || "";
   paintCounts(rec);
-  const [y, m, d] = date.split("-").map(Number), isToday = date === ymd(new Date());
-  $("dLabel").innerHTML = `${fmtDate(date)}<small>${isToday ? "今天" : ""}${rec.upd ? (isToday ? "・" : "") + "最後更新 " + new Date(rec.upd).toTimeString().slice(0, 5) : ""}</small>`;
+  const isToday = date === ymd(new Date());
+  $("dLabel").innerHTML = `${fmtDate(date)}<small>${isToday ? "今天" : ""}${rec.upd ? (isToday ? "・" : "") + "最後更新 " + hm(rec.upd) : ""}</small>`;
   document.querySelectorAll("#mkSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === mk));
   $("mkWarn").hidden = !!mk; $("mkSeg").classList.toggle("need", !mk);
   $("mkTag").textContent = mk ? MKT[mk] : "未選市場"; $("mkTag").classList.toggle("none", !mk);
   paintCtx();
   $("clearDay").textContent = "重新填寫";
+  paintConflict(mk ? all()[docId(date, mk)] : null);
+}
+/* 兩支手機同時改了同一個品項：顯示兩邊的數字，讓使用者選 */
+const keyName = k => { const r = ROWS.find(x => x.key === k); return r ? r.grp + (r.multi ? "（" + r.spec + "）" : "") : k.split("|")[0]; };
+const valText = (k, v) => { const r = ROWS.find(x => x.key === k); if (!v) return "沒有"; if (r && r.kind === "lvl") return (r.levels.find(x => x[0] === v) || [])[1] || String(v); return String(v) + (r && r.unit ? " " + r.unit : ""); };
+function paintConflict(rec){
+  const box = $("cfWarn"), cf = rec && !rec.del && rec.cf;
+  if (!cf || (!(cf.items || []).length && !cf.note)) { box.hidden = true; box.innerHTML = ""; return; }
+  const who = escapeHtml(cf.dev || "另一支手機");
+  const parts = (cf.items || []).map(x => `${escapeHtml(keyName(x.k))}：目前 ${escapeHtml(valText(x.k, x.theirs))}；${who} 改的是 ${escapeHtml(valText(x.k, x.mine))}`);
+  if (cf.note) parts.push(`備註：${who} 改的是「${escapeHtml(cf.note.mine)}」`);
+  box.innerHTML = `兩支手機同時修改了這天的紀錄，先保留先同步的數字，請確認：<br>${parts.join("<br>")}
+    <div class="cf-btns"><button type="button" class="btn ghost" id="cfKeep">保留目前的</button><button type="button" class="btn" id="cfUse">改用 ${who} 的</button></div>`;
+  box.hidden = false;
+  $("cfKeep").onclick = () => resolveConflict(false);
+  $("cfUse").onclick = () => resolveConflict(true);
+}
+function resolveConflict(useOther){
+  const a = all(), id = docId(date, mk), rec = a[id]; if (!rec || !rec.cf) return;
+  const cf = rec.cf;
+  markStockEdit(rec, true);
+  if (useOther) {
+    for (const x of cf.items || []) { if (x.mine > 0) rec.v[x.k] = x.mine; else delete rec.v[x.k]; }
+    if (cf.note) rec.note = cf.note.mine;
+  }
+  delete rec.cf; rec.upd = Date.now(); saveAll(a); fill(); Sync.run();
+  toast(useOther ? "已改用另一個數字" : "已保留目前的數字");
 }
 function paintCounts(rec){
   const n = {};
@@ -550,10 +594,10 @@ function paintCounts(rec){
 let saveTimer = null;
 function setVal(i, v){
   if (!mk) return;
-  const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 }, r = ROWS[i];
+  const a = all(), rec = editRec(a, docId(date, mk)), r = ROWS[i], now = Date.now();
   const n = clean(v, r.kind);
   if (n) rec.v[r.key] = n; else delete rec.v[r.key];
-  rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
+  rec.upd = now; saveAll(a);
   $("saveState").textContent = "已自動儲存";
   clearTimeout(saveTimer); saveTimer = setTimeout(() => Sync.run(), 800);
 }
@@ -568,8 +612,8 @@ $("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i =
 $("list").addEventListener("focusout", () => fill());
 $("note").addEventListener("input", () => {
   if (!mk) return;
-  const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 };
-  rec.note = $("note").value.slice(0, 500); rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
+  const a = all(), rec = editRec(a, docId(date, mk)), now = Date.now();
+  rec.note = $("note").value.slice(0, 500); rec.upd = now; saveAll(a);
   clearTimeout(saveTimer); saveTimer = setTimeout(() => Sync.run(), 800);
 });
 const shift = n => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); const [y, m, d] = date.split("-").map(Number); date = ymd(new Date(y, m - 1, d + n)); fill(); Sync.run(); window.scrollTo({ top: 0 }); };
@@ -579,7 +623,7 @@ $("mkSeg").addEventListener("click", e => { const b = e.target.closest("button[d
 
 /* 分享（只列有剩的） */
 function stockText(){
-  const rec = cur(); let t = `【剩貨】${fmtDate(date)}・${MKT[mk]}\n`, cat = "", grpLine = null;
+  const rec = cur(); let t = `【剩貨】${fmtDate(date)}・${MKT[mk]}\n`, cat = "";
   const groups = [];
   ROWS.forEach(r => {
     const v = rec.v[r.key]; if (!v) return;
@@ -592,14 +636,10 @@ function stockText(){
   if (rec.note) t += `\n備註：${rec.note}`;
   return t.trim();
 }
-function copyText(text){
-  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(() => true, () => false);
-  return Promise.resolve(false);
-}
 /* 頂部固定：正在記哪一天、哪個市場、存了沒 */
 function paintCtx(){
-  const st = !mk ? "" : !Sync.on() ? "已存在這支手機" : ({ busy: "同步中…", off: "已存手機・離線", err: "已存手機・同步失敗", ok: "已儲存・已同步" }[Sync.state] || "已儲存");
-  $("ctx").innerHTML = mk ? `正在記：<b>${fmtDate(date)}・${MKT[mk]}</b><span class="ctx-st ${Sync.state === "ok" || !Sync.on() ? "ok" : "warn"}">${st}</span>`
+  const st = !mk ? "" : !Sync.on() ? "已存在這支手機" : (Sync.need() ? "已存手機・需要店家密碼" : { busy: "同步中…", off: "已存手機・離線", err: "已存手機・同步失敗", ok: Sync.pending() ? "已存手機・等待上傳" : "已儲存・已同步" }[Sync.state] || "已儲存");
+  $("ctx").innerHTML = mk ? `正在記：<b>${fmtDate(date)}・${MKT[mk]}</b><span class="ctx-st ${(Sync.state === "ok" && !Sync.pending() && !Sync.need()) || !Sync.on() ? "ok" : "warn"}">${st}</span>`
     : `<span class="ctx-need">還沒選市場</span>`;
 }
 const paintNet = () => { $("netBar").hidden = navigator.onLine; };
@@ -612,211 +652,350 @@ $("shareBtn").onclick = async () => {
   const text = stockText(), data = { text }, btn = $("shareBtn");
   let can = window.isSecureContext && typeof navigator.share === "function";
   if (can && typeof navigator.canShare === "function") { try { can = navigator.canShare(data); } catch (e) { can = false; } }
-  if (!can) { if (await copyText(text)) afterShare("copy", "這支手機不支援分享，已複製剩貨清單，請到 LINE 貼上"); else toast("沒辦法分享或複製，請截圖保留", true); return; }
+  if (!can) { if (await copyText(text, null, true)) afterShare("copy", "這支手機不支援分享，已複製剩貨清單，請到 LINE 貼上"); else toast("沒辦法分享或複製，請截圖保留", true); return; }
   sharing = true; btn.disabled = true; btn.textContent = "開啟分享中…";
   try { await navigator.share(data); afterShare("share", "已交給分享選單，請到 LINE 等 App 確認有送出"); }
   catch (e) {
     if (e.name === "AbortError") toast("已取消，沒有分享（紀錄還在）");
-    else if (await copyText(text)) afterShare("copy", "分享沒有成功，已改成複製，請到 LINE 貼上");
+    else if (await copyText(text, null, true)) afterShare("copy", "分享沒有成功，已改成複製，請到 LINE 貼上");
     else toast("分享沒有成功，紀錄還在，請再試一次", true);
   } finally { sharing = false; btn.disabled = false; btn.textContent = "分享剩貨"; }
 };
 /* 分享完：記下分享時間（存到後台），清空選擇，準備記下一筆 */
 function afterShare(via, msg){
-  const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 };
-  rec.shared = Date.now(); rec.via = via; rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
+  const a = all(), rec = editRec(a, docId(date, mk));
+  rec.shared = Date.now(); rec.via = via; rec.upd = Date.now(); saveAll(a);
   Sync.run();
   toast(`${msg}。紀錄已保存，可在「紀錄」查看`);
   mk = ""; date = ymd(new Date()); fill(); window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-/* 刪除一筆紀錄（雲端也刪；離線就先排隊） */
-function deleteRecord(id){
-  const a = all(); delete a[id]; saveAll(a);
-  if (Sync.on()) { const c = Sync.cfg(); c.dels = [...new Set([...(c.dels || []), id])]; Sync.saveCfg(c); Sync.run(); }
+/* 刪除一筆紀錄：移到「最近刪除」，30 天內可以復原（有同步的話所有手機一起） */
+async function deleteRecord(id){
+  await Backup.snapshot("before-delete");
+  const a = all(); if (!a[id]) return;
+  markStockEdit(a[id], true); a[id].del = Date.now(); saveAll(a);
+  Sync.run();
+  if (docId(date, mk) === id) fill();
+}
+function undeleteRecord(id){
+  const a = all(); if (!a[id]) return;
+  markStockEdit(a[id], true); a[id].del = 0; saveAll(a);
+  Sync.run();
   if (docId(date, mk) === id) fill();
 }
 
 /* 歷史紀錄（後台） */
 const modal = $("modal"), sheet = $("sheet");
 modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("show"); });
-async function showHistory(){
-  sheet.innerHTML = `<h3>剩貨紀錄</h3><p class="note">讀取中…</p>`;
-  modal.classList.add("show");
-  let warn = "";
-  if (Sync.on()) {
-    if (!navigator.onLine) warn = "目前離線，下面只有這支手機上的紀錄";
-    else { try { await Sync.pullAll(); } catch (e) { warn = "讀取雲端紀錄失敗，下面只有這支手機上的紀錄，請稍後再開一次"; } }
+const hasData = r => Object.keys(r.v || {}).length || r.note;
+async function showHistory(refresh){
+  sheet.dataset.sub = "hist";
+  const scrollAt = sheet.scrollTop;
+  if (!refresh) {
+    sheet.innerHTML = `<h3>剩貨紀錄</h3><p class="note">讀取中…</p>`;
+    modal.classList.add("show");
+    if (Sync.on() && navigator.onLine) { try { Sync.lastFull = 0; await Sync.run(); } catch (e) {} }
   }
-  const list = Object.entries(all()).map(([id, r]) => { const m = id.match(/^inv_(\d{4}-\d{2}-\d{2})_(ba|ma)$/); return m ? { id, d: m[1], m: m[2], r } : null; })
-    .filter(x => x && (Object.keys(x.r.v || {}).length || x.r.note)).sort((a, b) => b.d.localeCompare(a.d) || a.m.localeCompare(b.m));
+  const warn = !Sync.on() ? "" : !navigator.onLine ? "目前離線，下面只有這支手機上的紀錄"
+    : Sync.need() || Sync.state === "err" ? "讀取雲端紀錄失敗，下面只有這支手機上的紀錄，請稍後再開一次" : "";
+  const rows = Object.entries(all()).map(([id, r]) => { const m = id.match(ID_RE); return m ? { id, d: m[1], m: m[2], r } : null; }).filter(x => x && hasData(x.r));
+  const list = rows.filter(x => !x.r.del).sort((a, b) => b.d.localeCompare(a.d) || a.m.localeCompare(b.m));
+  const trash = rows.filter(x => x.r.del).sort((a, b) => b.r.del - a.r.del);
   const cnt = (r, bring) => ROWS.filter(x => !!x.bring === bring && (r.v || {})[x.key] > 0).length;
   sheet.innerHTML = `<h3>剩貨紀錄</h3>${warn ? `<div class="state warn">${warn}</div>` : ""}<p class="note">${Sync.on() ? "所有手機同步的紀錄" : "這支手機上的紀錄"}，點一下打開。</p>` +
+    (Sync.need() ? `<div class="sync-btns"><button type="button" class="btn" id="histFix">${escapeHtml(NEED_TEXT[Sync.need()] || "需要輸入店家密碼")}</button></div>` : "") +
     (list.length ? `<div class="rows">${list.map(x => `<div class="row hist-row"><button type="button" class="hist" data-d="${x.d}" data-m="${x.m}">
         <span><b>${fmtDate(x.d)}</b>　${MKT[x.m]}<br><small>剩 ${cnt(x.r, false)} 項${cnt(x.r, true) ? `・要帶 ${cnt(x.r, true)} 項` : ""}</small></span>
-        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? (x.r.via === "copy" ? "已複製 " : "已分享 ") + new Date(x.r.shared).toTimeString().slice(0, 5) : "未分享"}</span></button>
+        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? (x.r.via === "copy" ? "已複製 " : "已分享 ") + hm(x.r.shared) : "未分享"}</span></button>
         <button type="button" class="link-btn danger" data-del="${x.id}" aria-label="刪除 ${fmtDate(x.d)} ${MKT[x.m]}">刪除</button></div>`).join("")}</div>`
       : `<p class="note">還沒有紀錄。</p>`) +
-    `<div class="actions"><button type="button" class="btn ghost" id="histClose">關閉</button></div>`;
+    (trash.length ? `<p class="prep-cat">最近刪除（${TRASH_DAYS} 天內可以復原）</p><div class="rows">${trash.map(x => `<div class="row hist-row">
+        <span class="hist"><span>${fmtDate(x.d)}　${MKT[x.m]}<br><small>刪除於 ${when(x.r.del)}</small></span></span>
+        <button type="button" class="link-btn" data-undel="${x.id}">復原</button></div>`).join("")}</div>` : "") +
+    `<div class="actions"><button type="button" class="btn ghost" id="histBackup">備份與復原</button><button type="button" class="btn ghost" id="histClose">關閉</button></div>`;
+  if (refresh) sheet.scrollTop = scrollAt;
   $("histClose").onclick = () => modal.classList.remove("show");
+  $("histBackup").onclick = showBackup;
+  const hf = $("histFix"); if (hf) hf.onclick = () => askStorePw(Sync.need());
   sheet.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
-    const id = b.dataset.del, m = id.match(/^inv_(.+)_(ba|ma)$/);
-    if (!(await askConfirm(`刪除 ${fmtDate(m[1])} ${MKT[m[2]]} 的紀錄？`, Sync.on() ? "所有手機上的這筆紀錄都會刪除，無法復原。" : "刪除後無法復原。", "刪除"))) return;
-    deleteRecord(id); toast("已刪除"); showHistory();
+    const id = b.dataset.del, m = id.match(ID_RE);
+    if (!(await askConfirm({ title: `刪除 ${fmtDate(m[1])} ${MKT[m[2]]} 的紀錄？`, ok: "刪除", danger: true,
+      msg: `${Sync.on() ? "所有手機上的這筆紀錄都會刪除。" : ""}${TRASH_DAYS} 天內可以在「最近刪除」復原。` }))) return;
+    await deleteRecord(id); toast("已刪除，可以在「最近刪除」復原"); showHistory();
   });
-  sheet.querySelectorAll(".hist").forEach(b => b.onclick = () => { date = b.dataset.d; modal.classList.remove("show"); setMarket(b.dataset.m); window.scrollTo({ top: 0 }); });
+  sheet.querySelectorAll("[data-undel]").forEach(b => b.onclick = () => { undeleteRecord(b.dataset.undel); toast("已復原"); showHistory(); });
+  sheet.querySelectorAll("button.hist").forEach(b => b.onclick = () => { date = b.dataset.d; modal.classList.remove("show"); setMarket(b.dataset.m); window.scrollTo({ top: 0 }); });
 }
-$("histBtn").onclick = showHistory;
+$("histBtn").onclick = () => showHistory();
+
+/* 備份與復原 */
+async function showBackup(){
+  sheet.dataset.sub = "backup";
+  const snaps = await Backup.list(), on = Sync.on() && !Sync.need();
+  let clouds = null, revs = null;
+  const id = mk ? docId(date, mk) : "";
+  if (on && navigator.onLine) {
+    const room = Sync.cfg().room;
+    try { clouds = await Cloud.backupSets(room); } catch (e) {}
+    if (id) { try { const key = await Sync.aes(); revs = []; for (const d of await Cloud.revsOf(room, id)) { try { revs.push({ d, r: cleanStock(await aesOpen(key, d.data.iv, d.data.ct), clean) }); } catch (e) {} } } catch (e) {} }
+  }
+  const row = (left, btn) => `<div class="row" style="align-items:center"><span style="color:var(--ink)">${left}</span>${btn}</div>`;
+  const summary = r => { const ks = Object.keys(r.v || {}); return ks.length ? ks.slice(0, 4).map(k => `${keyName(k)} ${valText(k, r.v[k])}`).join("、") + (ks.length > 4 ? ` 等 ${ks.length} 項` : "") : "沒有剩貨"; };
+  const kindText = { prev: "修改前", conflict: "衝突時沒採用", restore: "還原前" };
+  sheet.innerHTML = `<h3>備份與復原</h3>
+    <div class="sync-btns"><button type="button" class="btn ghost" id="bkExport">${ICON.download}匯出備份檔</button>
+      <label class="btn ghost file-btn">從備份檔復原<input type="file" id="bkFile" accept=".json,application/json"></label></div>
+    <p class="note">備份都是加密的。復原只會補回手機上沒有的紀錄，不會蓋掉現在的資料。</p>
+    ${id && on ? `<p class="prep-cat">${fmtDate(date)} ${MKT[mk]} 的歷史版本（保存 30 天）</p>
+      ${revs ? (revs.length ? `<div class="rows">${revs.slice(0, 10).map((x, i) => row(`${when(x.d.data.ts)}・${escapeHtml(kindText[x.d.data.kind] || "舊版本")}・${escapeHtml(x.d.data.dev || "")}<br><small class="stat">${escapeHtml(summary(x.r))}</small>`,
+        `<button type="button" class="link-btn" data-rev="${i}">還原</button>`)).join("")}</div>` : `<p class="note">這天還沒有歷史版本。</p>`) : `<p class="note">目前無法讀取歷史版本。</p>`}` : ""}
+    ${on ? `<p class="prep-cat">雲端每日備份（保留 90 天，任何手機都不能修改或刪除）</p>
+      ${clouds ? (clouds.length ? `<div class="rows">${clouds.slice(0, 7).map(c => row(`${when(c.ts)}・${escapeHtml(c.dev || "")}<br><small class="stat">共 ${c.nd} 筆資料</small>`,
+        `<button type="button" class="link-btn" data-cloud="${escapeHtml(c.set)}">復原</button>`)).join("")}</div>` : `<p class="note">還沒有雲端備份，同步後會自動建立。</p>`) : `<p class="note">目前無法讀取雲端備份。</p>`}` : ""}
+    <p class="prep-cat">這支手機的自動備份</p>
+    ${snaps.length ? `<div class="rows">${snaps.slice(0, 6).map(s => row(`${when(s.at)}・${Backup.label(s.kind)}<br><small class="stat">剩貨 ${s.nStock || 0} 筆・訂單 ${s.nOrders || 0} 筆</small>`,
+      `<button type="button" class="link-btn" data-snap="${escapeHtml(s.key)}">復原</button>`)).join("")}</div>` : `<p class="note">還沒有自動備份。</p>`}
+    <div class="actions"><button type="button" class="btn ghost" id="bkBack">回剩貨紀錄</button></div>`;
+  $("bkBack").onclick = () => showHistory();
+  $("bkExport").onclick = async () => {
+    try { if (await Backup.exportFile()) toast("已匯出加密備份檔，請存到安全的地方"); }
+    catch (e) { toast(e.message === "nometa" ? "要先加入店家同步（設定店家密碼）才能匯出加密備份" : "匯出失敗，請再試一次", true); }
+  };
+  $("bkFile").onchange = async e => {
+    const f = e.target.files && e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    let data; try { data = Backup.parse(await f.text()); } catch (x) { toast("這不是剩貨頁或訂購頁的備份檔", true); return; }
+    await restoreStockBackup(data);
+  };
+  sheet.querySelectorAll("[data-snap]").forEach(b => b.onclick = async () => { const d = await Backup.get(b.dataset.snap); if (d) await restoreStockBackup(d); });
+  sheet.querySelectorAll("[data-cloud]").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "讀取中…";
+    try { await restoreStockBackup(await Backup.fromCloud(Sync.cfg().room, b.dataset.cloud, await Sync.aes())); }
+    catch (e) { toast("雲端備份讀取失敗，請確認網路", true); showBackup(); }
+  });
+  sheet.querySelectorAll("[data-rev]").forEach(b => b.onclick = async () => {
+    const x = revs[b.dataset.rev];
+    if (!(await askConfirm({ title: "還原這個版本？", ok: "還原", msg: `${fmtDate(date)} ${MKT[mk]} 改回 ${when(x.d.data.ts)} 的數字。目前的數字會保留在歷史版本。` }))) return;
+    const a = all(), rec = editRec(a, id);
+    rec.v = { ...x.r.v }; rec.note = x.r.note || ""; delete rec.cf; rec.upd = Date.now(); saveAll(a);
+    fill(); Sync.run(); toast("已還原"); showBackup();
+  });
+}
+async function restoreStockBackup(data){
+  let map = data.stockPlain || null;
+  if (!map && data.stock) {
+    const keys = await askPassword({ title: "輸入備份的店家密碼", min: data.meta && data.meta.shared === false ? 4 : 8, ok: "復原",
+      msg: `這份備份建立於 ${when(data.at)}。請輸入當時使用的店家密碼。`,
+      check: async pw => (await Backup.keys(data.meta, pw)) || "密碼不正確" });
+    if (!keys) return;
+    try { map = await Backup.openStock(keys, data); } catch (e) { toast("備份無法解開", true); return; }
+  }
+  if (!map) { toast("這份備份沒有剩貨紀錄", true); return; }
+  await Backup.snapshot("before-restore");
+  const n = Backup.restoreStock(map, Sync.on());
+  toast(n ? `已復原 ${n} 筆剩貨紀錄` : "備份裡的紀錄這支手機都已經有了");
+  fill(); Sync.run(); showBackup();
+}
 
 $("clearDay").onclick = async () => {
   if (!mk) { await askMarket(); return; }
-  if (!(await askConfirm(`清除 ${fmtDate(date)} ${MKT[mk]} 的內容？`, `只會清除 ${fmtDate(date)}「${MKT[mk]}」填的數字和備註。${MKT[mk === "ba" ? "ma" : "ba"]}和其他天都不受影響。`, "清除"))) return;
-  const a = all(), id = docId(date, mk); a[id] = { v: {}, note: "", upd: Date.now(), p: 1 }; saveAll(a); fill(); Sync.run();
+  if (!(await askConfirm({ title: `清除 ${fmtDate(date)} ${MKT[mk]} 的內容？`, ok: "清除", danger: true, msg: `只會清除 ${fmtDate(date)}「${MKT[mk]}」填的數字和備註。${MKT[mk === "ba" ? "ma" : "ba"]}和其他天都不受影響。` }))) return;
+  await Backup.snapshot("before-clear");
+  const a = all(), rec = editRec(a, docId(date, mk));
+  rec.v = {}; rec.note = ""; rec.upd = Date.now(); saveAll(a); fill(); Sync.run();
 };
 
-/* ===== 對話框 ===== */
-function closeDlg(){ $("dlg").classList.remove("show"); $("dlgBox").innerHTML = ""; }
-function askConfirm(title, msg, ok){
-  return new Promise(res => {
-    $("dlgBox").innerHTML = `<h4>${escapeHtml(title)}</h4><p>${escapeHtml(msg)}</p><div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn danger" data-yes>${escapeHtml(ok)}</button></div>`;
-    $("dlg").classList.add("show");
-    $("dlgBox").querySelector("[data-no]").onclick = () => { closeDlg(); res(false); };
-    $("dlgBox").querySelector("[data-yes]").onclick = () => { closeDlg(); res(true); };
-  });
-}
-
-/* ===== 同步（和訂購頁同一組店家密碼；資料加密後才上傳） ===== */
-const FS = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents`;
-const CFG = "stockSync";
-const te = new TextEncoder(), td = new TextDecoder();
-function b64(buf){ const u = new Uint8Array(buf); let s = ""; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); }
-function unb64(s){ return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+/* ===== 同步（和訂購頁同一組店家密碼；資料加密後才上傳） =====
+   金鑰存在 IndexedDB 而且不可匯出；第一次輸入店家密碼時在背景自動登記為店家裝置，之後不用再輸入。
+   打開的手機每 6 秒檢查一次變動；同時修改時逐項三方比較，不看手機時間。 */
+const NEED_TEXT = { join: "需要輸入一次店家密碼", retired: "店家密碼已更換，請輸入新的店家密碼", revoked: "這支手機的同步已被停用", nokey: "請再輸入一次店家密碼" };
 const Sync = {
-  idToken: null, exp: 0, busy: false, again: false, state: "", last: 0, key: null,
-  cfg(){ try { return JSON.parse(localStorage.getItem(CFG) || "null") || {}; } catch (e) { return {}; } },
-  saveCfg(c){ localStorage.setItem(CFG, JSON.stringify(c)); },
-  on(){ const c = this.cfg(); return !!(c.room && c.k); },
-  async aes(){ if (!this.key) this.key = await crypto.subtle.importKey("raw", unb64(this.cfg().k), "AES-GCM", false, ["encrypt", "decrypt"]); return this.key; },
-  async token(){
-    if (this.idToken && Date.now() < this.exp - 60000) return this.idToken;
-    const c = this.cfg();
-    if (c.rt) {
-      const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FB.apiKey}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "grant_type=refresh_token&refresh_token=" + encodeURIComponent(c.rt) });
-      if (r.ok) { const j = await r.json(); this.idToken = j.id_token; this.exp = Date.now() + Number(j.expires_in) * 1000; this.saveCfg({ ...this.cfg(), rt: j.refresh_token }); return this.idToken; }
-    }
-    const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB.apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ returnSecureToken: true }) });
-    if (!r.ok) throw new Error("auth");
-    const j = await r.json(); this.idToken = j.idToken; this.exp = Date.now() + Number(j.expiresIn) * 1000; this.saveCfg({ ...this.cfg(), rt: j.refreshToken });
-    return this.idToken;
+  busy: false, again: false, state: "", last: 0, key: null, cur: null, n: 0,
+  cfg(){ return StockCfg.get(); },
+  saveCfg(c){ StockCfg.save(c); },
+  upd(p){ this.saveCfg({ ...this.cfg(), ...p }); },
+  on(){ const c = this.cfg(); return !!(c.room && (c.k || c.hk === c.room || this.key)); },
+  need(){ return this.cfg().need || ""; },
+  get lastFull(){ return Number(localStorage.getItem("sFullAt:" + this.cfg().room)) || 0; },
+  set lastFull(v){ try { localStorage.setItem("sFullAt:" + this.cfg().room, String(v)); } catch (e) {} },
+  pending(){ return Object.values(all()).filter(r => r.p).length; },
+  async aes(){
+    if (!this.key) this.key = await StockCfg.key(this.cfg().room);
+    if (!this.key) throw new CloudError("nokey");
+    return this.key;
   },
-  async api(method, path, body){
-    const r = await fetch(FS + path, { method, headers: { Authorization: "Bearer " + (await this.token()), ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
-    if (r.status === 404 && method === "GET") return null;
-    if (!r.ok) throw new Error("http " + r.status);
-    return r.json();
-  },
-  async derive(pw, salt, n){ const base = await crypto.subtle.importKey("raw", te.encode(pw), "PBKDF2", false, ["deriveBits"]);
-    return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: te.encode(salt), iterations: 300000, hash: "SHA-256" }, base, n)); },
-  async join(pw){
-    const room = [...(await this.derive(pw, "smoked-order/room/v1", 256))].map(b => b.toString(16).padStart(2, "0")).join("");
-    const meta = await this.api("GET", `/rooms/${room}/orders/_meta`);
-    if (!meta) return false;
-    const k = await this.derive(pw, "smoked-order/stock/v1", 256);
-    this.saveCfg({ ...this.cfg(), room, k: b64(k) }); this.key = null;
-    return true;
-  },
-  async push(id, rec){
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.aes(), te.encode(JSON.stringify({ v: rec.v, note: rec.note || "", upd: rec.upd, shared: rec.shared || 0, via: rec.via || "" })));
-    await this.api("PATCH", `/rooms/${this.cfg().room}/orders/${id}`, { fields: { iv: { stringValue: b64(iv) }, ct: { stringValue: b64(ct) }, upd: { integerValue: String(rec.upd) } } });
-  },
-  /* 讀回所有日期的剩貨紀錄（給「紀錄」頁用） */
-  async pullAll(){
-    const room = this.cfg().room; let tok = "";
-    const b = all(); let changed = false; const seen = new Set();
-    do {
-      const j = await this.api("GET", `/rooms/${room}/orders?pageSize=300` + (tok ? "&pageToken=" + encodeURIComponent(tok) : ""));
-      for (const d of (j && j.documents) || []) {
-        const id = d.name.split("/").pop(); if (!/^inv_\d{4}-\d{2}-\d{2}_(ba|ma)$/.test(id) || (this.cfg().dels || []).includes(id)) continue;
-        seen.add(id);
-        const loc = b[id], upd = Number(d.fields.upd && d.fields.upd.integerValue) || 0;
-        if (loc && (loc.p || upd <= (loc.upd || 0))) continue;
-        try {
-          const f = d.fields, r = JSON.parse(td.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv.stringValue) }, await this.aes(), unb64(f.ct.stringValue))));
-          b[id] = { v: Object.fromEntries(Object.entries(r.v || {}).map(([k, v]) => [String(k).slice(0, 40), clean(v, "w")]).filter(([, v]) => v > 0)),
-            note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0, via: r.via === "copy" ? "copy" : r.via ? "share" : "" };
-          changed = true;
-        } catch (e) {}
-      }
-      tok = j && j.nextPageToken;
-    } while (tok);
-    // 其他手機刪掉的紀錄：雲端已經沒有、這支手機也沒有待上傳的修改 → 一起刪掉
-    for (const id of Object.keys(b)) if (/^inv_/.test(id) && !seen.has(id) && !b[id].p) { delete b[id]; changed = true; }
-    if (changed) saveAll(b);
-  },
-  async pull(id){
-    const d = await this.api("GET", `/rooms/${this.cfg().room}/orders/${id}`); if (!d) return null;
-    const f = d.fields;
-    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv.stringValue) }, await this.aes(), unb64(f.ct.stringValue));
-    return JSON.parse(td.decode(pt));
-  },
-  async run(){
-    if (!this.on()) { this.paint(); return; }
-    if (this.busy) { this.again = true; return; }
-    if (!navigator.onLine) { this.state = "off"; this.paint(); return; }
+  payload(l){ return { v: l.v || {}, note: l.note || "", upd: l.upd || 0, shared: l.shared || 0, via: l.via || "", ...(l.cf ? { cf: l.cf } : {}) }; },
+  run(){
+    if (!this.on()) { this.paint(); return Promise.resolve(); }
+    if (this.busy) { this.again = true; return this.cur; }
+    if (!navigator.onLine) { this.state = "off"; this.paint(); return Promise.resolve(); }
+    if (this.need()) { this.state = "need"; this.paint(); return Promise.resolve(); }
     this.busy = true; this.state = "busy"; this.paint();
-    try {
-      for (const id of this.cfg().dels || []) {
-        const r = await fetch(`${FS}/rooms/${this.cfg().room}/orders/${id}`, { method: "DELETE", headers: { Authorization: "Bearer " + (await this.token()) } });
-        if (!r.ok && r.status !== 404) throw new Error("http " + r.status);
-        const c = this.cfg(); c.dels = (c.dels || []).filter(x => x !== id); this.saveCfg(c);
+    this.cur = (async () => {
+      try {
+        await this.cycle();
+        this.state = "ok"; this.last = Date.now();
+        Cloud.touch(this.cfg().room);
+      } catch (e) {
+        let why = "";
+        if (e && e.code === "nokey") why = e.code;
+        else if (e && (e.code === "retired" || e.code === "denied")) {   // 先看這支手機是不是被停用，再看密碼有沒有被更換
+          why = await Cloud.diagnose(this.cfg().room).catch(() => e.code === "retired" ? "retired" : "");
+          if (why === "denied" || why === "join") why = e.code === "retired" ? "retired" : why === "join" ? "join" : "";
+        }
+        if (why) { this.upd({ need: why }); this.state = "need"; }
+        else this.state = navigator.onLine ? "err" : "off";
+      } finally {
+        this.busy = false; this.paint();
+        if (this.again) { this.again = false; setTimeout(() => this.run(), 300); }
       }
-      const a = all();
-      for (const [id, rec] of Object.entries(a)) if (rec.p) { await this.push(id, rec); const b = all(); if (b[id] && b[id].upd === rec.upd) { delete b[id].p; saveAll(b); } }
-      const id = docId(date, mk), remote = mk ? await this.pull(id) : null;
-      const b = all(), loc = b[id];
-      if (remote && !(this.cfg().dels || []).includes(id) && (!loc || (!loc.p && remote.upd > (loc.upd || 0)))) {
-        b[id] = { v: Object.fromEntries(Object.entries(remote.v || {}).map(([k, v]) => [String(k).slice(0, 40), clean(v, "w")]).filter(([, v]) => v > 0)),
-          note: String(remote.note || "").slice(0, 500), upd: Number(remote.upd) || 0, shared: Number(remote.shared) || 0, via: remote.via === "copy" ? "copy" : remote.via ? "share" : "" };
-        saveAll(b); fill();
+    })();
+    return this.cur;
+  },
+  async cycle(){
+    const c = this.cfg(), room = c.room, key = await this.aes();
+    if (c.legacy) { if (await Cloud.importLegacy(room, c.legacy) >= -1) this.upd({ legacy: "" }); }   // 舊版房間的資料搬過來
+    // 舊版排隊中的刪除 → 改成「標記刪除」，30 天內還能復原
+    for (const id of c.dels || []) {
+      const d = await Cloud.getDoc(room, id);
+      if (d && !d.data.del) await Cloud.put(room, id, { iv: d.data.iv, ct: d.data.ct, upd: d.data.upd, del: Date.now() }, { ver: d.data.ver || 0, ut: d.ut });
+      const cc = this.cfg(); cc.dels = (cc.dels || []).filter(x => x !== id); this.saveCfg(cc);
+    }
+    const full = !this.lastFull || Date.now() - this.lastFull > 3 * 3600 * 1000;
+    if (full || ++this.n % 5 === 0) { const rd = await Cloud.room(room); if (rd && rd.retired) throw new CloudError("retired"); }
+    const docs = full ? await Cloud.list(room) : await Cloud.changedSince(room, (this.cfg().cursor || 0) - 10000);
+    let changed = await this.apply(docs, full, key);
+    changed = (await this.push(room, key)) || changed;
+    if (full) {
+      this.lastFull = Date.now();
+      await this.purgeOld(room, docs);
+      Cloud.backupDaily(room, docs).catch(() => {});   // 雲端每日加密備份（今天已經有就跳過）
+    }
+    if (changed) { fill(); if (modal.classList.contains("show") && sheet.dataset.sub === "hist") showHistory(true); }
+  },
+  remote(d, key){ return aesOpen(key, d.data.iv, d.data.ct).then(x => ({ ...cleanStock(x, clean), del: d.data.del || 0, ver: d.data.ver || 0, ut: d.ut, dtsRaw: d.dtsRaw, by: d.data.by, rts: d.data.ts })); },
+  async apply(docs, full, key){
+    const a = all(); let changed = false, maxTs = this.cfg().cursor || 0;
+    const seen = new Set();
+    for (const d of docs) {
+      if (d.data.ts > maxTs) maxTs = d.data.ts;
+      if (!ID_RE.test(d.id) || !d.data.ct) continue;
+      seen.add(d.id);
+      const l = a[d.id];
+      if (l && l.ut === d.ut) continue;
+      // 換房間後：雲端已經有一樣的這筆（同一次修改），直接接上
+      if (l && l.p && !l.ut && !l.b && l.upd === (d.data.upd || 0) && !!l.del === !!d.data.del) { try { a[d.id] = await this.remote(d, key); } catch (e) {} continue; }
+      if (l && l.p) continue;   // 這支手機有待上傳的修改（上傳時合併）
+      try { a[d.id] = await this.remote(d, key); changed = true; } catch (e) {}
+    }
+    if (full) for (const [id, l] of Object.entries(a)) {
+      if (!ID_RE.test(id) || seen.has(id) || l.p || l.del) continue;
+      if (l.ut || l.k0) { l.del = Date.now(); l.gone = 1; changed = true; }   // 雲端已經沒有：移到最近刪除，不直接刪
+      else if (Object.keys(l.v || {}).length || l.note) l.p = 1;              // 從來沒上傳過
+    }
+    saveAll(a); this.upd({ cursor: maxTs });
+    return changed;
+  },
+  async push(room, key){
+    let changed = false;
+    const uid = await Cloud.uid();
+    for (const id of Object.keys(all()).filter(id => all()[id].p)) {
+      for (let tries = 0; tries < 4; tries++) {
+        const l = all()[id]; if (!l || !l.p) break;
+        if (!ID_RE.test(id)) { delete l.p; const a = all(); a[id] = l; saveAll(a); break; }
+        const pay = this.payload(l), body = await aesSeal(key, pay);
+        const b = l.b, base = l.gone || !l.ut ? null : { ver: l.ver, ut: l.ut, del: b ? b.del : 0, dtsRaw: l.dtsRaw };
+        const prev = b && base && Cloud.keepPrev({ ver: l.ver, by: l.by, rts: l.rts }, uid)
+          ? { ...(await aesSeal(key, { v: b.v, note: b.note, shared: b.shared, upd: 0 })), upd: 0, ver: l.ver, del: b.del || 0 } : null;
+        try {
+          const res = await Cloud.put(room, id, { ...body, upd: l.upd || 0, del: l.del || 0 }, base, prev);
+          const a = all(), x = a[id];
+          if (x) {
+            Object.assign(x, { ver: res.ver, ut: res.ut, dtsRaw: res.dtsRaw, by: uid, rts: Date.now() }); delete x.gone; delete x.k0;
+            if (same(this.payload(x), pay) && (x.del || 0) === (l.del || 0)) { delete x.p; delete x.b; }
+            else x.b = { ...stockBase({ ...pay, del: l.del || 0 }) };   // 上傳途中又改了：剛上傳的就是新的上一版
+            saveAll(a);
+          }
+          break;
+        } catch (e) {
+          if (e.code === "denied") { const why = await Cloud.diagnose(room); if (why !== "denied") throw e; }   // 被拒絕是因為版本不對 → 當成衝突
+          else if (e.code !== "conflict") throw e;
+          // 衝突：讀雲端最新版本，逐項三方合併（不看手機時間）
+          const d = await Cloud.getDoc(room, id);
+          if (!d) { const a = all(); a[id].gone = 1; saveAll(a); continue; }
+          const R = await this.remote(d, key);
+          const { rec, conflict } = mergeStock3(l.b || null, l, R);
+          const a = all();
+          if (same(this.payload(rec), this.payload(R)) && !!rec.del === !!R.del) { a[id] = R; saveAll(a); changed = true; break; }   // 合併後就是雲端版本
+          if (conflict) {
+            await Cloud.saveRev(room, id, { ...body, upd: l.upd || 0, del: l.del || 0 }, "conflict");
+            toast("另一支手機同時修改了同一天的剩貨，有不同的數字，請在上方確認", true);
+          }
+          a[id] = { ...rec, p: 1, ver: R.ver, ut: R.ut, dtsRaw: R.dtsRaw, by: R.by, rts: R.rts, b: stockBase(R) };
+          saveAll(a); changed = true;
+        }
       }
-      this.state = "ok"; this.last = Date.now();
-    } catch (e) { this.state = navigator.onLine ? "err" : "off"; }
-    finally { this.busy = false; this.paint(); if (this.again) { this.again = false; setTimeout(() => this.run(), 300); } }
+    }
+    return changed;
+  },
+  /* 刪除超過 30 天的，雲端與手機都清掉（雲端以伺服器記下的刪除時間為準） */
+  async purgeOld(room, docs){
+    const lim = Date.now() - TRASH_DAYS * DAY - 3600 * 1000;
+    const old = docs.filter(d => ID_RE.test(d.id) && d.data.del && d.data.dts && d.data.dts < lim);
+    for (const d of old.slice(0, 100)) { try { await Cloud.commit([Cloud.del(`/rooms/${room}/orders/${d.id}`)]); } catch (e) {} }
+    const a = all(); let n = 0;
+    for (const [id, r] of Object.entries(a)) if (r.del && r.del < lim && !r.p) { delete a[id]; n++; }
+    if (n) saveAll(a);
+  },
+  /* 加入或換到另一個房間（舊版升級、店家密碼更換） */
+  async switchTo(room, pw, meta, legacy){
+    const c = this.cfg();
+    await StockCfg.join(room, pw, meta, legacy);
+    this.key = null; this.lastFull = 0;
+    this.upd({ cursor: c.room === room ? c.cursor : 0 });
   },
   paint(){
     if (typeof paintCtx === "function") paintCtx();
-    const p = $("syncPill");
-    if (!this.on()) { p.hidden = true; $("saveState").textContent = mk ? "只存在這支手機" : "選好市場就會自動儲存"; return; }
-    p.hidden = false; p.className = "sync-pill " + (this.state || "");
-    p.textContent = { busy: "同步中", off: "離線", err: "未同步", ok: "已同步" }[this.state] || "同步";
-    $("saveState").textContent = { off: "已儲存・離線", err: "已儲存・稍後同步", busy: "已儲存・同步中", ok: "已儲存・已同步" }[this.state] || "已自動儲存";
+    const p = $("syncPill"), n = this.pending();
+    if (!this.on() && !this.need()) { p.hidden = true; $("saveState").textContent = mk ? "只存在這支手機" : "選好市場就會自動儲存"; return; }
+    const st = this.need() ? "err" : this.state;
+    p.hidden = false; p.className = "sync-pill " + (st || "");
+    p.textContent = this.need() ? "未同步" : st === "busy" ? "同步中" : st === "off" ? (n ? `離線・${n} 筆待傳` : "離線") : st === "err" ? (n ? `${n} 筆未上傳` : "未同步") : st === "ok" ? (n ? `${n} 筆待傳` : "已同步") : "同步";
+    $("saveState").textContent = this.need() ? "已存在手機・需要店家密碼" : { off: "已存在手機・離線", err: "已存在手機・稍後重試上傳", busy: "已儲存・同步中", ok: n ? "已存在手機・等待上傳" : "已儲存・已同步" }[this.state] || "已自動儲存";
     if (!mk) $("saveState").textContent = "選好市場就會自動儲存";
   },
 };
-$("syncPill").onclick = () => Sync.run();
-setInterval(() => { if (!document.hidden) Sync.run(); }, 20000);
+$("syncPill").onclick = () => Sync.need() ? askStorePw(Sync.need()) : Sync.run();
+setInterval(() => { if (!document.hidden) Sync.run(); }, 6000);
 window.addEventListener("online", () => Sync.run());
+window.addEventListener("offline", () => { Sync.state = "off"; Sync.paint(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.run(); });
 
-/* 第一次打開：輸入店家密碼加入同步 */
-function askStorePw(){
-  $("dlgBox").innerHTML = `<h4>輸入店家密碼</h4><p>輸入和訂購頁同一組店家密碼，剩貨紀錄就會在所有手機同步。</p>
-    <input class="pw-in" id="spw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" placeholder="店家密碼">
+/* 輸入店家密碼加入同步（第一次、安全升級、密碼已更換、被撤銷） */
+function askStorePw(reason){
+  const msg = {
+    join: "這次更新需要再輸入一次店家密碼，之後這支手機會記住，不用再輸入。",
+    retired: "店家密碼已經在另一支手機更換。請輸入新的店家密碼，這支手機還沒上傳的剩貨會一起帶過去。",
+    revoked: "這支手機的同步已被其他手機停用。輸入店家密碼可以重新加入。",
+    nokey: "請再輸入一次店家密碼，才能繼續同步。",
+  }[reason] || "輸入和訂購頁同一組店家密碼，剩貨紀錄就會在所有手機同步。";
+  $("dlgBox").innerHTML = `<h4>${reason === "retired" ? "輸入新的店家密碼" : "輸入店家密碼"}</h4><p>${escapeHtml(msg)}</p>
+    ${pwField("spw", "店家密碼")}
     <div class="dlg-err" id="pwErr"></div>
-    <div class="dlg-btns"><button type="button" class="btn ghost" data-no>先不同步</button><button type="button" class="btn" data-yes>加入</button></div>`;
+    <div class="dlg-btns"><button type="button" class="btn ghost" data-no>${reason ? "稍後" : "先不同步"}</button><button type="button" class="btn" data-yes>加入</button></div>`;
   $("dlg").classList.add("show");
   const inp = $("spw"), err = $("pwErr"), yes = $("dlgBox").querySelector("[data-yes]");
   setTimeout(() => inp.focus(), 50);
-  $("dlgBox").querySelector("[data-no]").onclick = () => { closeDlg(); Sync.saveCfg({ ...Sync.cfg(), skip: 1 }); Sync.paint(); };
+  $("dlgBox").querySelector("[data-no]").onclick = () => { closeDlg(); if (!reason) Sync.upd({ skip: 1 }); Sync.paint(); };
   const go = async () => {
     if (inp.value.length < 8) { err.textContent = "店家密碼至少 8 碼"; return; }
     if (!navigator.onLine) { err.textContent = "需要網路，請連上網路再試"; return; }
     yes.disabled = true; err.textContent = "連線中…";
     try {
-      if (await Sync.join(inp.value)) { closeDlg(); toast("已加入同步"); Sync.run(); }
-      else { yes.disabled = false; err.textContent = "找不到這組店家密碼。請確認有沒有打錯，或先在訂購頁設定。"; }
+      const r = await Cloud.enter(inp.value);
+      if (r.meta) { await Sync.switchTo(r.room, inp.value, r.meta, r.legacy); closeDlg(); toast("已加入同步"); Sync.paint(); Sync.run(); if (sheet.dataset.sub === "hist" && modal.classList.contains("show")) showHistory(); }
+      else { yes.disabled = false; err.textContent = r.state === "retired" ? "這是已經換掉的舊密碼，請輸入新的店家密碼" : "找不到這組店家密碼。請確認有沒有打錯，或先在訂購頁設定。"; }
     } catch (e) { yes.disabled = false; err.textContent = "連不上同步伺服器，請確認網路後再試"; }
   };
   inp.onkeydown = e => { if (e.key === "Enter") go(); };
@@ -828,7 +1007,15 @@ function askStorePw(){
   const d = new Date();
   $("todayLine").textContent = `今天 ${d.getMonth() + 1}/${d.getDate()}（星期${WK[d.getDay()]}）`;
   render(); fill(); Sync.paint(); paintNet();
-  if (!Sync.on() && !Sync.cfg().skip && window.isSecureContext && window.crypto && crypto.subtle) askStorePw();
+  const c = Sync.cfg(), canCrypto = window.isSecureContext && window.crypto && crypto.subtle;
+  if (canCrypto) Backup.snapshot("auto");
+  if (!Sync.on() && !c.room && !c.skip && canCrypto) askStorePw();
+  else if (c.room && Sync.need()) askStorePw(Sync.need());
+  else if (c.room && !c.v2 && canCrypto && Date.now() - (Number(localStorage.getItem("upAskS")) || 0) > 12 * 3600 * 1000) {
+    // 舊版升級：這支手機還沒登記，請輸入一次店家密碼（每 12 小時最多問一次；按「稍後」照常同步）
+    localStorage.setItem("upAskS", String(Date.now()));
+    askStorePw("join");
+  }
   Sync.run();
 })();
 </script>
