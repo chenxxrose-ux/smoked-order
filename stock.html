@@ -279,6 +279,7 @@
   .qbox input:focus{background:var(--soy-tint);border-radius:8px;color:var(--ink)}
   .qbox.on input{color:var(--ink);font-weight:600}
   .unit{font-size:13px;color:var(--sub);min-width:18px}
+  .seg.lvl{width:150px}
   .wbox{flex:none;display:flex;align-items:center;gap:6px}
   .wbox input{width:84px;height:44px;border:none;border-radius:10px;background:var(--fill);font-size:17px;text-align:center;outline:none}
   .wbox input:focus{background:var(--soy-tint)}
@@ -376,15 +377,20 @@ const MENU = [
 /* 備品（單位可以改這裡） */
 const SUPPLIES = [
   ["兩斤袋子", "包"], ["一斤袋子", "包"], ["兩斤透明袋", "包"], ["半斤透明袋", "包"], ["四兩提袋", "包"], ["半斤提袋", "包"],
-  ["胡椒", "罐"], ["香油", "罐"], ["辣粉", "罐"], ["便當盒", "個"],
+  ["胡椒", "包"], ["香油", "罐"], ["辣粉", "罐"], ["便當盒", "個"],
 ];
 const MKT = { ba: "爸爸市場", ma: "媽媽市場" };
 const WEIGH_UNIT = "斤";
+const LEVEL_ITEMS = ["鴨腸", "口香糖", "大腸"];        // 記「一點點／很多」
+const LEVELS = { 1: "一點點", 2: "很多" };
+const COUNT_PARTS = { "豬頭皮": ["塊", "條", "件"] };   // 分開記幾塊、幾條、幾件
 
 /* 要記的格子：key 用「品名|規格」，以後調整菜單也不會亂掉 */
 const ROWS = [];
 MENU.forEach(sec => sec.items.forEach(it => {
-  if (it.type === "amount") ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|`, name: it.name, kind: "w", unit: WEIGH_UNIT });
+  if (LEVEL_ITEMS.includes(it.name)) ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|量`, name: it.name, kind: "lvl", unit: "" });
+  else if (COUNT_PARTS[it.name]) COUNT_PARTS[it.name].forEach(u => ROWS.push({ cat: sec.cat, grp: it.name, multi: true, cnt: true, key: `${it.name}|${u}`, name: it.name, spec: u, kind: "n", unit: u }));
+  else if (it.type === "amount") ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|`, name: it.name, kind: "w", unit: WEIGH_UNIT });
   else if (it.type === "piece") ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|塊`, name: it.name, kind: "n", unit: "塊" });
   else it.opts.forEach(o => {
     const m = o.label.match(/^一(.)(?:（(.+)）)?/);
@@ -410,13 +416,15 @@ function render(){
     if (r.cat !== cat) { close(); if (cat) html += "</section>"; cat = r.cat; html += `<h2 class="sec">${escapeHtml(r.cat)}</h2><section class="card">`; }
     if (r.multi) { if (grp !== r.grp) { close(); grp = r.grp; html += `<div class="grp"><div class="grp-name">${escapeHtml(r.grp)}</div>`; } }
     else close();
-    const ctrl = r.kind === "w"
+    const ctrl = r.kind === "lvl"
+      ? `<div class="seg small lvl" id="b${i}">${Object.entries(LEVELS).map(([v, t]) => `<button type="button" data-i="${i}" data-lv="${v}">${t}</button>`).join("")}</div>`
+      : r.kind === "w"
       ? `<div class="wbox" id="b${i}"><input type="number" inputmode="decimal" step="0.1" min="0" data-i="${i}" placeholder="0" aria-label="${escapeHtml(r.name)}剩幾斤"><span class="unit">${r.unit}</span></div>`
       : `<div class="qbox" id="b${i}"><button type="button" data-i="${i}" data-d="-1" aria-label="減少">${ICON.minus}</button>
           <input type="number" inputmode="numeric" min="0" data-i="${i}" placeholder="0" aria-label="${escapeHtml(r.name + (r.spec || ""))}剩幾${r.unit}">
           <button type="button" data-i="${i}" data-d="1" aria-label="增加">${ICON.plus}</button></div>`;
-    const title = r.multi ? `<div class="it-sub"><span class="spec">${escapeHtml(r.spec)}</span></div>`
-      : `<div class="it-name">${escapeHtml(r.name)}</div>${r.unit ? `<div class="it-sub">${r.kind === "w" ? "秤重" : (r.spec ? escapeHtml(r.spec) : "") || "單位：" + r.unit}</div>` : ""}`;
+    const title = r.multi ? `<div class="it-sub"><span class="spec">${r.cnt ? "幾" : ""}${escapeHtml(r.spec)}</span></div>` : r.kind === "lvl" ? `<div class="it-name">${escapeHtml(r.name)}</div><div class="it-sub">剩多少</div>`
+      : `<div class="it-name">${escapeHtml(r.name)}</div>${r.unit ? `<div class="it-sub">${r.kind === "w" ? "秤重" : (r.spec ? escapeHtml(r.spec) : "") || "幾" + r.unit}</div>` : ""}`;
     html += `<div class="it"><div class="it-main">${title}</div>${ctrl}</div>`;
   });
   close(); html += "</section>";
@@ -436,7 +444,8 @@ function fill(){
   const rec = cur();
   ROWS.forEach((r, i) => {
     const v = rec.v[r.key] || 0, inp = document.querySelector(`input[data-i="${i}"]`);
-    if (document.activeElement !== inp) inp.value = v ? v : "";
+    if (r.kind === "lvl") document.querySelectorAll(`button[data-i="${i}"][data-lv]`).forEach(b => b.classList.toggle("on", Number(b.dataset.lv) === v));
+    else if (document.activeElement !== inp) inp.value = v ? v : "";
     $("b" + i).classList.toggle("on", v > 0);
   });
   if (document.activeElement !== $("note")) $("note").value = rec.note || "";
@@ -455,6 +464,8 @@ function setVal(i, v){
   clearTimeout(saveTimer); saveTimer = setTimeout(() => Sync.run(), 800);
 }
 $("list").addEventListener("click", e => {
+  const lv = e.target.closest("button[data-lv]");
+  if (lv) { const i = Number(lv.dataset.i), n = Number(lv.dataset.lv); setVal(i, cur().v[ROWS[i].key] === n ? 0 : n); fill(); return; }   // 再按一次取消
   const b = e.target.closest("button[data-d]"); if (!b) return;
   const i = Number(b.dataset.i), v = (cur().v[ROWS[i].key] || 0) + Number(b.dataset.d);
   setVal(i, Math.max(0, v)); fill();
@@ -479,7 +490,7 @@ function stockText(){
     const v = rec.v[r.key]; if (!v) return;
     let g = groups.find(x => x.cat === r.cat && x.grp === r.grp);
     if (!g) { g = { cat: r.cat, grp: r.grp, parts: [] }; groups.push(g); }
-    g.parts.push(r.multi ? `${r.spec} ${v}` : `${v}${r.unit ? " " + r.unit : ""}`);
+    g.parts.push(r.kind === "lvl" ? (LEVELS[v] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? `${r.spec} ${v}` : `${v}${r.unit ? " " + r.unit : ""}`);
   });
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
   groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n〔${cat}〕\n`; } t += `${g.grp}　${g.parts.join("、")}\n`; });
