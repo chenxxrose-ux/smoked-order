@@ -1815,7 +1815,7 @@ function fillTimes(keep){
 /* 外送地址＋導航 */
 function navUrl(addr){
   const q = encodeURIComponent(addr);
-  return /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) ? `https://maps.apple.com/?q=${q}` : `https://www.google.com/maps/search/?api=1&query=${q}`;
+  return `https://www.google.com/maps/dir/?api=1&destination=${q}`;   // 一律用 Google 地圖導航
 }
 function paintAddr(){
   const on = market === "外送", a = $id("addr").value.trim();
