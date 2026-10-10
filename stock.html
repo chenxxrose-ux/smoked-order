@@ -292,6 +292,17 @@
   .sec-t.shut .chev{transform:rotate(-90deg)}
   .sec-t:active{opacity:.6}
   .card.folded{display:none}
+  .row.hist{width:100%;text-align:left;align-items:center;background:none;font-size:15px;color:var(--ink)}
+  .row.hist small{color:var(--sub);font-size:13px}
+  .row.hist .ok{color:var(--soy);font-size:13px}
+  .row.hist .todo{color:#B26A00;font-size:13px}
+  .row.hist:active{background:var(--fill)}
+  .mk-warn{margin:10px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:15px;font-weight:500;text-align:center}
+  #mkSeg.need{box-shadow:0 0 0 2px #E2A33B}
+  .mk-tag{color:var(--soy);font-weight:600}
+  .mk-tag.none{color:#B26A00}
+  .mk-pick{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .mk-pick .btn{min-height:56px;font-size:17px}
   .sum b small{font-size:14px;font-weight:500;color:var(--soy)}
   .wbox{flex:none;display:flex;align-items:center;gap:6px}
   .wbox input{width:84px;height:44px;border:none;border-radius:10px;background:var(--fill);font-size:17px;text-align:center;outline:none}
@@ -313,6 +324,7 @@
   <div class="top-in">
     <div><h1>剩貨紀錄</h1><p class="today" id="todayLine"></p></div>
     <div class="hdr-right"><button type="button" class="sync-pill" id="syncPill" hidden></button>
+      <button type="button" class="hdr-btn" id="histBtn">紀錄</button>
       <a class="hdr-btn" href="./">訂購頁</a></div>
   </div>
 </header>
@@ -320,9 +332,10 @@
 <main>
   <div class="datebar"><button type="button" id="dPrev" aria-label="前一天">‹</button><b id="dLabel"></b><button type="button" id="dNext" aria-label="後一天">›</button></div>
   <div class="seg" id="mkSeg">
-    <button type="button" data-m="ba" class="on">爸爸市場</button>
+    <button type="button" data-m="ba">爸爸市場</button>
     <button type="button" data-m="ma">媽媽市場</button>
   </div>
+  <div class="mk-warn" id="mkWarn">請先選擇市場，再開始填寫</div>
   <div id="list"></div>
   <h2 class="sec">備註</h2>
   <section class="card"><textarea class="note-in" id="note" rows="2" placeholder="其他要交代的"></textarea></section>
@@ -330,10 +343,11 @@
 </main>
 
 <div class="bar"><div class="bar-in">
-  <div class="sum"><span class="sum-l" id="saveState">已自動儲存</span><b><span id="cnt">0</span> 項有剩<small id="bring"></small></b></div>
+  <div class="sum"><span class="sum-l"><span class="mk-tag" id="mkTag">未選市場</span>・<span id="saveState">已自動儲存</span></span><b><span id="cnt">0</span> 項有剩<small id="bring"></small></b></div>
   <button type="button" class="btn" id="shareBtn">分享剩貨</button>
 </div></div>
 
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
@@ -466,6 +480,29 @@ function render(){
 
 /* ===== 收合（記在這支手機） ===== */
 function folded(){ try { return JSON.parse(localStorage.getItem("stockFold") || "[]"); } catch (e) { return []; } }
+/* 還沒選市場：先跳出來問，選完才能填 */
+function askMarket(){
+  return new Promise(res => {
+    $("dlgBox").innerHTML = `<h4>這是哪個市場的？</h4><p>選好市場再填，才不會記到別的市場。</p>
+      <div class="mk-pick">${Object.entries(MKT).map(([k, v]) => `<button type="button" class="btn" data-pick="${k}">${v}</button>`).join("")}</div>
+      <div class="dlg-btns" style="margin-top:10px"><button type="button" class="btn ghost" data-no>取消</button></div>`;
+    $("dlg").classList.add("show");
+    $("dlgBox").querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { closeDlg(); setMarket(b.dataset.pick); res(true); });
+    $("dlgBox").querySelector("[data-no]").onclick = () => { closeDlg(); res(false); };
+  });
+}
+function setMarket(m){ mk = m; fill(); Sync.run(); toast(`現在記的是：${MKT[m]}`); }
+async function needMarket(e){
+  if (mk) return true;
+  if (e) { e.preventDefault(); e.stopImmediatePropagation(); if (e.target.blur) e.target.blur(); }
+  await askMarket();
+  return false;
+}
+["pointerdown", "focusin"].forEach(ev => $("list").addEventListener(ev, e => {
+  if (!mk && e.target.closest("input,button[data-lv]")) needMarket(e);
+}, true));
+$("note").addEventListener("focusin", e => { if (!mk) needMarket(e); }, true);
+
 $("list").addEventListener("click", e => {
   const h = e.target.closest(".sec-t"); if (!h) return;
   const cat = h.dataset.cat, f = new Set(folded()), shut = !f.has(cat);
@@ -477,7 +514,7 @@ $("list").addEventListener("click", e => {
 
 /* ===== 資料（每天＋市場一筆） ===== */
 const LOCAL = "stockData";
-let date = ymd(new Date()), mk = "ba";
+let date = ymd(new Date()), mk = "";   // 每次打開都要自己選市場，避免記錯
 const docId = (d, m) => `inv_${d}_${m}`;
 function all(){ try { return JSON.parse(localStorage.getItem(LOCAL) || "{}"); } catch (e) { return {}; } }
 function saveAll(a){ localStorage.setItem(LOCAL, JSON.stringify(a)); }
@@ -497,6 +534,8 @@ function fill(){
   const [y, m, d] = date.split("-").map(Number), isToday = date === ymd(new Date());
   $("dLabel").innerHTML = `${fmtDate(date)}<small>${isToday ? "今天" : ""}${rec.upd ? (isToday ? "・" : "") + "最後更新 " + new Date(rec.upd).toTimeString().slice(0, 5) : ""}</small>`;
   document.querySelectorAll("#mkSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === mk));
+  $("mkWarn").hidden = !!mk; $("mkSeg").classList.toggle("need", !mk);
+  $("mkTag").textContent = mk ? MKT[mk] : "未選市場"; $("mkTag").classList.toggle("none", !mk);
 }
 function paintCounts(rec){
   const n = {};
@@ -508,6 +547,7 @@ function paintCounts(rec){
 }
 let saveTimer = null;
 function setVal(i, v){
+  if (!mk) return;
   const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 }, r = ROWS[i];
   const n = clean(v, r.kind);
   if (n) rec.v[r.key] = n; else delete rec.v[r.key];
@@ -525,6 +565,7 @@ $("list").addEventListener("click", e => {
 $("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i === undefined) return; setVal(Number(i), e.target.value); $("b" + i).classList.toggle("on", Number(e.target.value) > 0); paintCounts(cur()); });
 $("list").addEventListener("focusout", () => fill());
 $("note").addEventListener("input", () => {
+  if (!mk) return;
   const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 };
   rec.note = $("note").value.slice(0, 500); rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
   clearTimeout(saveTimer); saveTimer = setTimeout(() => Sync.run(), 800);
@@ -532,7 +573,7 @@ $("note").addEventListener("input", () => {
 const shift = n => { const [y, m, d] = date.split("-").map(Number); date = ymd(new Date(y, m - 1, d + n)); fill(); Sync.run(); window.scrollTo({ top: 0 }); };
 $("dPrev").onclick = () => shift(-1);
 $("dNext").onclick = () => shift(1);
-$("mkSeg").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b) return; mk = b.dataset.m; fill(); Sync.run(); });
+$("mkSeg").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b || b.dataset.m === mk) return; setMarket(b.dataset.m); });
 
 /* 分享（只列有剩的） */
 function stockText(){
@@ -554,13 +595,46 @@ function copyText(text){
   return Promise.resolve(false);
 }
 $("shareBtn").onclick = async () => {
+  if (!mk) { await askMarket(); return; }
   const text = stockText(), data = { text };
   let can = window.isSecureContext && typeof navigator.share === "function";
   if (can && typeof navigator.canShare === "function") { try { can = navigator.canShare(data); } catch (e) { can = false; } }
-  if (!can) { if (await copyText(text)) toast("已複製剩貨清單，可以直接貼到 LINE"); else toast("無法分享，請截圖", true); return; }
-  try { await navigator.share(data); } catch (e) { if (e.name !== "AbortError") { if (await copyText(text)) toast("分享沒有成功，已改成複製"); else toast("分享沒有成功", true); } }
+  if (!can) { if (await copyText(text)) afterShare("已複製剩貨清單，可以直接貼到 LINE"); else toast("無法分享，請截圖", true); return; }
+  try { await navigator.share(data); afterShare("已分享"); }
+  catch (e) { if (e.name !== "AbortError") { if (await copyText(text)) afterShare("分享沒有成功，已改成複製"); else toast("分享沒有成功", true); } }
 };
+/* 分享完：記下分享時間（存到後台），清空選擇，準備記下一筆 */
+function afterShare(msg){
+  const a = all(), id = docId(date, mk), rec = a[id] || { v: {}, note: "", upd: 0 };
+  rec.shared = Date.now(); rec.upd = Date.now(); rec.p = 1; a[id] = rec; saveAll(a);
+  Sync.run();
+  toast(`${msg}，紀錄已存到後台`);
+  mk = ""; date = ymd(new Date()); fill(); window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/* 歷史紀錄（後台） */
+const modal = $("modal"), sheet = $("sheet");
+modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("show"); });
+async function showHistory(){
+  sheet.innerHTML = `<h3>剩貨紀錄</h3><p class="note">讀取中…</p>`;
+  modal.classList.add("show");
+  if (Sync.on() && navigator.onLine) { try { await Sync.pullAll(); } catch (e) {} }
+  const list = Object.entries(all()).map(([id, r]) => { const m = id.match(/^inv_(\d{4}-\d{2}-\d{2})_(ba|ma)$/); return m ? { id, d: m[1], m: m[2], r } : null; })
+    .filter(x => x && (Object.keys(x.r.v || {}).length || x.r.note)).sort((a, b) => b.d.localeCompare(a.d) || a.m.localeCompare(b.m));
+  const cnt = (r, bring) => ROWS.filter(x => !!x.bring === bring && (r.v || {})[x.key] > 0).length;
+  sheet.innerHTML = `<h3>剩貨紀錄</h3><p class="note">${Sync.on() ? "所有手機同步的紀錄" : "這支手機上的紀錄"}，點一下打開。</p>` +
+    (list.length ? `<div class="rows">${list.map(x => `<button type="button" class="row hist" data-d="${x.d}" data-m="${x.m}">
+        <span><b>${fmtDate(x.d)}</b>　${MKT[x.m]}<br><small>剩 ${cnt(x.r, false)} 項${cnt(x.r, true) ? `・要帶 ${cnt(x.r, true)} 項` : ""}</small></span>
+        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? "已分享 " + new Date(x.r.shared).toTimeString().slice(0, 5) : "未分享"}</span></button>`).join("")}</div>`
+      : `<p class="note">還沒有紀錄。</p>`) +
+    `<div class="actions"><button type="button" class="btn ghost" id="histClose">關閉</button></div>`;
+  $("histClose").onclick = () => modal.classList.remove("show");
+  sheet.querySelectorAll(".hist").forEach(b => b.onclick = () => { date = b.dataset.d; modal.classList.remove("show"); setMarket(b.dataset.m); window.scrollTo({ top: 0 }); });
+}
+$("histBtn").onclick = showHistory;
+
 $("clearDay").onclick = async () => {
+  if (!mk) { await askMarket(); return; }
   if (!(await askConfirm(`清空 ${fmtDate(date)} ${MKT[mk]} 的紀錄？`, "這天這個市場的剩貨數量都會清掉，其他手機也會同步清掉。", "清空"))) return;
   const a = all(), id = docId(date, mk); a[id] = { v: {}, note: "", upd: Date.now(), p: 1 }; saveAll(a); fill(); Sync.run();
 };
@@ -620,8 +694,29 @@ const Sync = {
   },
   async push(id, rec){
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.aes(), te.encode(JSON.stringify({ v: rec.v, note: rec.note || "", upd: rec.upd })));
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.aes(), te.encode(JSON.stringify({ v: rec.v, note: rec.note || "", upd: rec.upd, shared: rec.shared || 0 })));
     await this.api("PATCH", `/rooms/${this.cfg().room}/orders/${id}`, { fields: { iv: { stringValue: b64(iv) }, ct: { stringValue: b64(ct) }, upd: { integerValue: String(rec.upd) } } });
+  },
+  /* 讀回所有日期的剩貨紀錄（給「紀錄」頁用） */
+  async pullAll(){
+    const room = this.cfg().room; let tok = "";
+    const b = all(); let changed = false;
+    do {
+      const j = await this.api("GET", `/rooms/${room}/orders?pageSize=300` + (tok ? "&pageToken=" + encodeURIComponent(tok) : ""));
+      for (const d of (j && j.documents) || []) {
+        const id = d.name.split("/").pop(); if (!/^inv_\d{4}-\d{2}-\d{2}_(ba|ma)$/.test(id)) continue;
+        const loc = b[id], upd = Number(d.fields.upd && d.fields.upd.integerValue) || 0;
+        if (loc && (loc.p || upd <= (loc.upd || 0))) continue;
+        try {
+          const f = d.fields, r = JSON.parse(td.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv.stringValue) }, await this.aes(), unb64(f.ct.stringValue))));
+          b[id] = { v: Object.fromEntries(Object.entries(r.v || {}).map(([k, v]) => [String(k).slice(0, 40), clean(v, "w")]).filter(([, v]) => v > 0)),
+            note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0 };
+          changed = true;
+        } catch (e) {}
+      }
+      tok = j && j.nextPageToken;
+    } while (tok);
+    if (changed) saveAll(b);
   },
   async pull(id){
     const d = await this.api("GET", `/rooms/${this.cfg().room}/orders/${id}`); if (!d) return null;
@@ -637,11 +732,11 @@ const Sync = {
     try {
       const a = all();
       for (const [id, rec] of Object.entries(a)) if (rec.p) { await this.push(id, rec); const b = all(); if (b[id] && b[id].upd === rec.upd) { delete b[id].p; saveAll(b); } }
-      const id = docId(date, mk), remote = await this.pull(id);
+      const id = docId(date, mk), remote = mk ? await this.pull(id) : null;
       const b = all(), loc = b[id];
       if (remote && (!loc || (!loc.p && remote.upd > (loc.upd || 0)))) {
         b[id] = { v: Object.fromEntries(Object.entries(remote.v || {}).map(([k, v]) => [String(k).slice(0, 40), clean(v, "w")]).filter(([, v]) => v > 0)),
-          note: String(remote.note || "").slice(0, 500), upd: Number(remote.upd) || 0 };
+          note: String(remote.note || "").slice(0, 500), upd: Number(remote.upd) || 0, shared: Number(remote.shared) || 0 };
         saveAll(b); fill();
       }
       this.state = "ok"; this.last = Date.now();
