@@ -345,6 +345,7 @@
   .sync-box{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:14px;color:var(--sub);display:flex;align-items:center;justify-content:space-between;gap:10px}
   .sync-box b{color:var(--ink);font-weight:500}
   .sync-box.cta{display:block}
+  .unpriced{color:#B3261E;font-weight:600}
   .push-on{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:#E3F1E7;color:#2E6B44;font-weight:600}
   .push-btn{flex:none;min-height:40px;padding:0 16px;border:none;border-radius:999px;background:var(--soy);color:#fff;font-size:15px;font-weight:600}
   .sync-box.cta .btn{width:100%;margin-top:10px}
@@ -444,8 +445,9 @@
     </div></div>
     <div id="depositBox" style="display:none">
       <div class="line"><label class="lbl" for="deposit">訂金</label>
-        <input type="number" id="deposit" min="0" inputmode="numeric" placeholder="金額" enterkeyhint="done"><span class="owe" id="owe"></span></div>
+        <input type="number" id="deposit" min="1" step="1" inputmode="numeric" placeholder="金額" enterkeyhint="done"><span class="owe" id="owe"></span></div>
     </div>
+    <div class="err" id="payErr"></div>
     <div class="line"><span class="lbl" style="width:auto;flex:1">切</span>
       <div class="seg small" data-group="cut"><button type="button" data-v="要切" class="on">要切</button><button type="button" data-v="不切">不切</button></div></div>
     <div class="line"><span class="lbl" style="width:auto;flex:1">胡椒</span>
@@ -599,7 +601,11 @@ function render(){
 
   menu.addEventListener("click", e => {
     const w = e.target.closest("button[data-want]");
-    if (w) { const k = w.dataset.want; want[k] = !want[k]; w.classList.toggle("on", want[k]); update(); return; }
+    if (w) {
+      const k = w.dataset.want; want[k] = !want[k]; w.classList.toggle("on", want[k]);
+      if (!want[k]) { delete amounts[k]; const inp = menu.querySelector(`[data-amt="${k}"]`); if (inp) inp.value = ""; }   // 取消就清掉金額，不會留在訂單
+      update(); return;
+    }
     const b = e.target.closest("button[data-k]");
     if (!b) return;
     const k = b.dataset.k;
@@ -625,11 +631,11 @@ function getLines(){
   MENU.forEach((sec, si) => byLen(sec.items).forEach(([it, ii]) => {
     if (it.type === "money") {
       const k = `${si}-${ii}-amt`, a = amounts[k] || 0;
-      if (want[k] || a > 0) lines.push({ cat: sec.cat, nm: it.name, kind: "amount", q: 1, weigh: false, est: null,
+      if (want[k]) lines.push({ cat: sec.cat, nm: it.name, kind: "amount", q: 1, weigh: false, est: null,
         short: it.name, item: `${it.name} $${a}`, text: `【${sec.cat}】${it.name}`, sub: a > 0 ? a : null });
     } else if (it.type === "amount") {
       const k = `${si}-${ii}-amt`, a = amounts[k] || 0;
-      if (want[k] || a > 0) lines.push({ cat: sec.cat, nm: it.name, kind: "amount", q: 1, weigh: true, est: a || null,
+      if (want[k]) lines.push({ cat: sec.cat, nm: it.name, kind: "amount", q: 1, weigh: true, est: a || null,
         short: `${it.name}${a ? " 約$" + a : ""}`, item: `${it.name}${a ? " 約$" + a : ""}`,
         text: `【${sec.cat}】${it.name}${a ? " 約$" + a : ""}`, sub: null });
     } else if (it.type === "piece") {
@@ -669,13 +675,19 @@ function buildText(o, opts = {}){
   if (o.addr) t += `地址：${opts.fullPhone ? o.addr : maskAddr(o.addr)}\n`;
   if (o.prep) t += prepText(o.prep) + "\n";
   if (o.memo) t += `備註：${o.memo}\n`;
-  t += o.items.map(l => `${l.sub !== null && l.weigh ? (l.short || l.item).replace(/ 約\$\d+/, "") : (l.short || l.item)}${l.sub === null ? (l.weigh ? "（待秤）" : "") : " $" + l.sub}`).join("\n");
+  t += o.items.map(l => `${l.sub !== null && l.weigh ? (l.short || l.item).replace(/ 約\$\d+/, "") : (l.short || l.item)}${l.sub === null ? (l.weigh ? "（待秤）" : "（未定價）") : " $" + l.sub}`).join("\n");
   o.total = calcTotal(o.items);
-  t += `\n合計 $${o.total}${hasPending(o.items) ? "＋秤重另計" : ""}`;
+  t += `\n合計 $${o.total}${totalNote(o.items)}`;
   if (o.pay) t += `\n${payText(o)}`;
   return t;
 }
 function calcTotal(items){ return items.reduce((s, l) => s + (l.sub || 0), 0); }
+const hasUnpriced = items => items.some(l => l.sub === null && !l.weigh);
+/* 合計後面的提醒：秤重還沒補、或有品項沒設價格 → 合計不是最後金額 */
+function totalNote(items){
+  const a = hasPending(items), b = hasUnpriced(items);
+  return a && b ? "＋秤重、未定價另計" : a ? "＋秤重另計" : b ? "＋未定價另計" : "";
+}
 function hasPending(items){ return items.some(l => l.weigh && l.sub === null); }
 
 let sharing = false;
@@ -1570,8 +1582,11 @@ function validate(){
   const addr = market === "外送" ? $id("addr").value.trim() : "";
   showErr("addrErr", market === "外送" && !addr); if (market === "外送" && !addr) errs.unshift($id("addr"));
   showErr("dateErr", !date); if (!date) errs.push($id("dateBtn"));
-  const noItems = !getLines().length;
+  const lines = getLines(), noItems = !lines.length;
   showErr("itemsErr", noItems); if (noItems) errs.push($id("itemsErr"));
+  const payMsg = payProblem(lines);
+  showErr("payErr", !!payMsg, payMsg);
+  if (payMsg) { const body = $id("optBody"); if (body.hidden) $id("optSum").click(); errs.push(pay === "deposit" ? depInput : $id("paySeg")); }
   if (errs.length) {
     const el = errs[0];
     el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1630,8 +1645,9 @@ document.getElementById("submitBtn").onclick = async () => {
     <div class="row"><span>處理</span><span>${prepText(prep)}</span></div>
     <div class="row"><span>付款</span><span>${payText({ pay, deposit: Number(depInput.value) || 0, total, items: lines })}</span></div>
     ${memo ? `<div class="row"><span>備註</span><span>${escapeHtml(memo)}</span></div>` : ""}</div>
-    <div class="rows items">${lines.map(l => `<div class="row"><span>${l.text}</span><span>${l.sub === null ? (l.weigh ? "待秤" : "—") : "$" + l.sub}</span></div>`).join("")}
-    <div class="row total"><span>合計</span><span>$${total}${hasPending(lines) ? "＋秤重另計" : unpriced ? "（部分未定價）" : ""}</span></div></div>
+    <div class="rows items">${lines.map(l => `<div class="row"><span>${l.text}</span><span${l.sub === null && !l.weigh ? ' class="unpriced"' : ""}>${l.sub === null ? (l.weigh ? "待秤" : "未定價") : "$" + l.sub}</span></div>`).join("")}
+    <div class="row total"><span>合計</span><span>$${total}${totalNote(lines)}</span></div></div>
+    ${unpriced ? `<div class="state warn">有品項還沒設價格，合計沒有算到。可以先到「單價設定」補上。</div>` : ""}
     <div class="actions"><button type="button" class="btn ghost" id="back">返回修改</button><button type="button" class="btn" id="confirm">儲存訂單</button></div>`;
   modal.classList.add("show");
   document.getElementById("back").onclick = () => modal.classList.remove("show");
@@ -1694,7 +1710,7 @@ function showSaveResult(order, state, edited){
   sheet.dataset.view = ""; sheet.dataset.sub = "";
   sheet.innerHTML = `<h3 class="${ok ? "" : "bad"}">${ok ? ICON.check : ""}${ok ? (edited ? "訂單已修改" : "訂單已儲存") : "訂單沒有儲存"}</h3>
     <div class="state ${msg[0]}">${msg[1]}</div>
-    ${shareBlock("分享訂單", "複製訂單文字")}
+    ${shareBlock("分享訂單", "複製訂單")}
     <div class="actions">${state === "fail" ? `<button type="button" class="btn" id="retrySave">再試一次</button>` : ""}
       <button type="button" class="btn ghost" id="nextOrder">${ok ? "下一筆" : "放棄這筆"}</button></div>`;
   bindShare(sheet, order);
@@ -1899,7 +1915,7 @@ function editWeigh(o){
     o.total = calcTotal(o.items);
     try { await Vault.put(o); } catch (err) { toast("儲存失敗，請再試一次", true); e.currentTarget.disabled = false; return; }
     sheet.innerHTML = `<h3>${ICON.check}金額已更新</h3>
-      ${shareBlock("分享訂單", "複製給客人")}
+      ${shareBlock("分享訂單", "複製訂單")}
       <div class="actions"><button type="button" class="btn ghost" id="wList">回訂單列表</button></div>`;
     bindShare(sheet, o);   // 用更新後的最新金額
     document.getElementById("wList").onclick = showOrders;
@@ -2450,17 +2466,31 @@ document.getElementById("paySeg").addEventListener("click", e => {
   document.querySelectorAll("#paySeg button").forEach(x => x.classList.toggle("on", x === b));
   document.getElementById("depositBox").style.display = pay === "deposit" ? "block" : "none";
   updateOwe(); paintOpt();
+  showErr("payErr", false);
 });
-depInput.addEventListener("input", () => { updateOwe(); paintOpt(); });
+depInput.addEventListener("input", () => { updateOwe(); paintOpt(); if ($id("payErr").style.display === "block") showErr("payErr", !!payProblem(getLines()), payProblem(getLines())); });
 setTimeout(paintOpt, 0);
 function currentTotal(){ return getLines().reduce((s, l) => s + (l.sub || 0), 0); }
 function updateOwe(){
   const dep = Number(depInput.value) || 0, tot = currentTotal();
   document.getElementById("owe").textContent = dep && tot ? `尚欠 $${Math.max(0, tot - dep)}` : "";
 }
+/* 付款金額檢查：訂金要是正整數、不能比已知總額多；還有秤重或未定價就不能選「已付清」 */
+function payProblem(lines){
+  const tot = lines.reduce((s, l) => s + (l.sub || 0), 0), open = hasPending(lines) || hasUnpriced(lines);
+  if (pay === "deposit") {
+    const raw = depInput.value.trim(), dep = Number(raw);
+    if (!raw) return "請填訂金金額";
+    if (!Number.isInteger(dep) || dep <= 0) return "訂金要是大於 0 的整數";
+    if (!open && tot > 0 && dep > tot) return `訂金 $${dep} 比合計 $${tot} 還多，請確認`;
+    if (open && tot > 0 && dep > tot + 100000) return "訂金金額太大，請確認";
+  }
+  if (pay === "full" && open) return "還有秤重或未定價的品項，金額還沒確定，不能選「已付清」。可以先選「付訂金」";
+  return "";
+}
 function payText(o){
   if (o.pay === "full") return "已付清";
-  if (o.pay === "deposit") return `訂金 $${o.deposit}・尚欠 $${Math.max(0, o.total - o.deposit)}${o.items && hasPending(o.items) ? "＋秤重" : ""}`;
+  if (o.pay === "deposit") return `訂金 $${o.deposit}・尚欠 $${Math.max(0, o.total - o.deposit)}${o.items && hasPending(o.items) ? "＋秤重" : ""}${o.items && hasUnpriced(o.items) ? "＋未定價" : ""}`;
   return "未付款";
 }
 
