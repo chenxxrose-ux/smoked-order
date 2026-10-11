@@ -625,10 +625,11 @@ $("dPrev").onclick = () => shift(-1);
 $("dNext").onclick = () => shift(1);
 $("mkSeg").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b || b.dataset.m === mk) return; setMarket(b.dataset.m); });
 
-/* 有規格的數量：「一隻」×2 → 「2 隻」；「半顆」「兩斤透明」這類 → 「半顆 × 1」，不會被看成一顆半 */
+/* 有規格的數量：「一隻」2 → 「2 隻」；「半隻」1 → 「半隻」；「半隻」2 → 「2 個半隻」
+   同一品項的不同規格用「＋」接起來：雞肉　1 隻＋半隻 */
 function specCount(spec, v){
   const m = String(spec).match(/^一(.)$/);
-  return m ? `${v} ${m[1]}` : `${spec} × ${v}`;
+  return m ? `${v} ${m[1]}` : Number(v) === 1 ? spec : `${v} 個${spec}`;
 }
 /* 分享（只列有剩的）：分類前面加圖示，在 LINE 群組比較好認 */
 /* 分類寫在分隔線裡：━━ 煙燻 ━━━━━━（不用 emoji，每支手機看起來都一樣） */
@@ -645,7 +646,7 @@ function stockText(){
     g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? specCount(r.spec, v) : `${v}${r.unit ? " " + r.unit : ""}`);
   });
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
-  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n${shareHead(cat)}\n`; } t += `　${g.grp}　${g.parts.join("、")}\n`; });
+  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n${shareHead(cat)}\n`; } t += `　${g.grp}　${g.parts.join("＋")}\n`; });
   if (rec.note) t += `\n※ ${rec.note}`;
   return t.trim();
 }
