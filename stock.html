@@ -625,6 +625,11 @@ $("dPrev").onclick = () => shift(-1);
 $("dNext").onclick = () => shift(1);
 $("mkSeg").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b || b.dataset.m === mk) return; setMarket(b.dataset.m); });
 
+/* 有規格的數量：「一隻」×2 → 「2 隻」；「半顆」「兩斤透明」這類 → 「半顆 × 1」，不會被看成一顆半 */
+function specCount(spec, v){
+  const m = String(spec).match(/^一(.)$/);
+  return m ? `${v} ${m[1]}` : `${spec} × ${v}`;
+}
 /* 分享（只列有剩的）：分類前面加圖示，在 LINE 群組比較好認 */
 const SHARE_HEAD = { "煙燻": "🍗 煙燻", "滷味": "🍢 滷味", "備品": "🧂 要帶" };
 function stockText(){
@@ -635,7 +640,7 @@ function stockText(){
     const v = rec.v[r.key]; if (!v) return;
     let g = groups.find(x => x.cat === r.cat && x.grp === r.grp);
     if (!g) { g = { cat: r.cat, grp: r.grp, parts: [] }; groups.push(g); }
-    g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? `${r.spec} ${v}` : `${v}${r.unit ? " " + r.unit : ""}`);
+    g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? specCount(r.spec, v) : `${v}${r.unit ? " " + r.unit : ""}`);
   });
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
   groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n${SHARE_HEAD[cat] || catLabel(cat)}\n`; } t += `${g.grp}　${g.parts.join("、")}\n`; });
