@@ -475,6 +475,12 @@ function pick3(b, l, r, hasB){
   if (hasB) { if (same(l, b)) return [r, false]; if (same(r, b)) return [l, false]; }
   return [r, true];
 }
+/* 已送出的剩貨（分享後頁面清空，內容存在這裡）：兩邊合併，用送出時間去重複，最多留 30 份 */
+function mergeSends(a, b){
+  const m = new Map();
+  for (const x of [...(a || []), ...(b || [])]) if (x && x.at && !m.has(x.at)) m.set(x.at, x);
+  return [...m.values()].sort((p, q) => q.at - p.at).slice(0, 30);
+}
 /* 剩貨：逐項比較。沒有共同上一版（舊版留下的修改）時：一邊沒有數字就用另一邊的，兩邊都有而且不同才算衝突 */
 function mergeStock3(B, L, R){
   const lv = L.v || {}, rv = R.v || {}, bv = B ? B.v || {} : {};
@@ -494,7 +500,7 @@ function mergeStock3(B, L, R){
   let del = 0;
   if (B) { const [d] = pick3(!!B.del, dl, dr, true); del = d ? (R.del || L.del) : 0; }
   else del = dl && dr ? Math.max(L.del, R.del) : 0;   // 不確定時不刪除
-  const out = { v, note: note || "", shared: Math.max(L.shared || 0, R.shared || 0), via: (L.shared || 0) >= (R.shared || 0) ? L.via || "" : R.via || "", upd: Math.max(L.upd || 0, R.upd || 0), del };
+  const out = { v, note: note || "", sends: mergeSends(L.sends, R.sends), shared: Math.max(L.shared || 0, R.shared || 0), via: (L.shared || 0) >= (R.shared || 0) ? L.via || "" : R.via || "", upd: Math.max(L.upd || 0, R.upd || 0), del };
   const conf = { items: cf, note: nc ? { mine: L.note || "", theirs: R.note || "" } : null };
   if (cf.length || nc) out.cf = { at: Date.now(), dev: deviceInfo().name, ...conf };
   else if (R.cf) out.cf = R.cf;
@@ -509,10 +515,14 @@ function cleanStock(r, clean){
       items: (Array.isArray(r.cf.items) ? r.cf.items : []).slice(0, 100).map(x => ({ k: String(x.k).slice(0, 40), mine: clean(x.mine, "w"), theirs: clean(x.theirs, "w") })),
       note: r.cf.note ? { mine: String(r.cf.note.mine || "").slice(0, 500), theirs: String(r.cf.note.theirs || "").slice(0, 500) } : null };
   }
-  return { v, note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0, via: r.via === "copy" ? "copy" : r.via ? "share" : "", ...(cf ? { cf } : {}) };
+  const sends = (Array.isArray(r.sends) ? r.sends : []).slice(0, 30).map(x => ({ at: Number(x && x.at) || 0, via: x && x.via === "copy" ? "copy" : "share",
+    v: Object.fromEntries(Object.entries((x && x.v) || {}).map(([k, y]) => [String(k).slice(0, 40), clean(y, "w")]).filter(([, y]) => y > 0)),
+    note: String((x && x.note) || "").slice(0, 500) })).filter(x => x.at);
+  return { v, note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0, via: r.via === "copy" ? "copy" : r.via ? "share" : "",
+    ...(sends.length ? { sends } : {}), ...(cf ? { cf } : {}) };
 }
 /* 剩貨紀錄開始修改前：記下共同的上一版（衝突合併用），標記待上傳 */
-function stockBase(rec){ return { v: { ...(rec.v || {}) }, note: rec.note || "", shared: rec.shared || 0, via: rec.via || "", del: rec.del || 0 }; }
+function stockBase(rec){ return { v: { ...(rec.v || {}) }, note: rec.note || "", shared: rec.shared || 0, via: rec.via || "", del: rec.del || 0, sends: (rec.sends || []).slice() }; }
 function markStockEdit(rec, syncOn){
   if (!rec.p && rec.ut && !rec.b) rec.b = stockBase(rec);
   if (syncOn) rec.p = 1;

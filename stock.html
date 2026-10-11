@@ -293,6 +293,7 @@
   .sec-t:active{opacity:.6}
   .card.folded{display:none}
   .hist-row{align-items:center;gap:6px;padding:4px 0}
+  .sent-pre{margin:0 0 8px;padding:12px 14px;border-radius:12px;background:var(--fill);font-size:15px;line-height:1.6;font-family:inherit;white-space:pre-wrap;color:var(--ink)}
   .hist{flex:1;min-width:0;display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:52px;text-align:left;font-size:15px;color:var(--ink);border-radius:8px}
   .hist:active{background:var(--fill)}
   .row .hist span:last-child{flex:none}
@@ -395,7 +396,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=4"></script>
-<script src="core.js?v=5"></script>
+<script src="core.js?v=6"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -635,9 +636,9 @@ function specCount(spec, v){
 /* 分類寫在分隔線裡：━━ 煙燻 ━━━━━━（不用 emoji，每支手機看起來都一樣） */
 const SHARE_HEAD = { "煙燻": "煙燻", "滷味": "滷味", "備品": "要帶" };
 const shareHead = c => `━━ ${SHARE_HEAD[c] || catLabel(c)} ━━━━━━`;
-function stockText(){
-  const rec = cur(), d = fmtDate(date).replace("(", "（").replace(")", "）");
-  let t = `【剩貨】${d}${MKT[mk]}\n`, cat = "";
+function stockText(rec = cur(), d0 = date, m0 = mk){
+  const d = fmtDate(d0).replace("(", "（").replace(")", "）");
+  let t = `【剩貨】${d}${MKT[m0]}\n`, cat = "";
   const groups = [];
   ROWS.forEach(r => {
     const v = rec.v[r.key]; if (!v) return;
@@ -678,9 +679,12 @@ $("shareBtn").onclick = async () => {
 /* 分享完：記下分享時間（存到後台），清空選擇，準備記下一筆 */
 function afterShare(via, msg){
   const a = all(), rec = editRec(a, docId(date, mk));
-  rec.shared = Date.now(); rec.via = via; rec.upd = Date.now(); saveAll(a);
+  const at = Date.now();
+  // 送出後：內容存到「已送出」紀錄（後台），這一頁清空，下次打開是空白的
+  rec.sends = mergeSends([{ at, via, v: { ...rec.v }, note: rec.note || "" }], rec.sends);
+  rec.v = {}; rec.note = ""; rec.shared = at; rec.via = via; rec.upd = at; saveAll(a);
   Sync.run();
-  toast(`${msg}。紀錄已保存，可在「紀錄」查看`);
+  toast(`${msg}。內容已存到「紀錄」，這頁已清空`);
   mk = ""; date = ymd(new Date()); fill(); window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -702,7 +706,7 @@ function undeleteRecord(id){
 /* 歷史紀錄（後台） */
 const modal = $("modal"), sheet = $("sheet");
 modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("show"); });
-const hasData = r => Object.keys(r.v || {}).length || r.note;
+const hasData = r => Object.keys(r.v || {}).length || r.note || (r.sends || []).length;
 async function showHistory(refresh){
   sheet.dataset.sub = "hist";
   const scrollAt = sheet.scrollTop;
@@ -716,12 +720,13 @@ async function showHistory(refresh){
   const rows = Object.entries(all()).map(([id, r]) => { const m = id.match(ID_RE); return m ? { id, d: m[1], m: m[2], r } : null; }).filter(x => x && hasData(x.r));
   const list = rows.filter(x => !x.r.del).sort((a, b) => b.d.localeCompare(a.d) || a.m.localeCompare(b.m));
   const trash = rows.filter(x => x.r.del).sort((a, b) => b.r.del - a.r.del);
-  const cnt = (r, bring) => ROWS.filter(x => !!x.bring === bring && (r.v || {})[x.key] > 0).length;
+  const cnt = (r, bring) => { const v = Object.keys(r.v || {}).length ? r.v : ((r.sends || [])[0] || {}).v || {}; return ROWS.filter(x => !!x.bring === bring && v[x.key] > 0).length; };
   sheet.innerHTML = `<h3>剩貨紀錄</h3>${warn ? `<div class="state warn">${warn}</div>` : ""}<p class="note">${Sync.on() ? "所有手機同步的紀錄" : "這支手機上的紀錄"}，點一下打開。</p>` +
     (Sync.need() ? `<div class="sync-btns"><button type="button" class="btn" id="histFix">${escapeHtml(NEED_TEXT[Sync.need()] || "需要輸入店家密碼")}</button></div>` : "") +
     (list.length ? `<div class="rows">${list.map(x => `<div class="row hist-row"><button type="button" class="hist" data-d="${x.d}" data-m="${x.m}">
         <span><b>${fmtDate(x.d)}</b>　${MKT[x.m]}<br><small>剩 ${cnt(x.r, false)} 項${cnt(x.r, true) ? `・要帶 ${cnt(x.r, true)} 項` : ""}</small></span>
-        <span class="${x.r.shared ? "ok" : "todo"}">${x.r.shared ? (x.r.via === "copy" ? "已複製 " : "已分享 ") + hm(x.r.shared) : "未分享"}</span></button>
+        <span class="${x.r.shared ? "ok" : "todo"}">${Object.keys(x.r.v || {}).length || x.r.note ? (x.r.shared ? "有新內容未分享" : "未分享")
+          : (x.r.via === "copy" ? "已複製 " : "已分享 ") + hm(x.r.shared)}${(x.r.sends || []).length > 1 ? `（${x.r.sends.length} 次）` : ""}</span></button>
         <button type="button" class="link-btn danger" data-del="${x.id}" aria-label="刪除 ${fmtDate(x.d)} ${MKT[x.m]}">刪除</button></div>`).join("")}</div>`
       : `<p class="note">還沒有紀錄。</p>`) +
     (trash.length ? `<p class="prep-cat">最近刪除（${TRASH_DAYS} 天內可以復原）</p><div class="rows">${trash.map(x => `<div class="row hist-row">
@@ -739,9 +744,30 @@ async function showHistory(refresh){
     await deleteRecord(id); toast("已刪除，可以在「最近刪除」復原"); showHistory();
   });
   sheet.querySelectorAll("[data-undel]").forEach(b => b.onclick = () => { undeleteRecord(b.dataset.undel); toast("已復原"); showHistory(); });
-  sheet.querySelectorAll("button.hist").forEach(b => b.onclick = () => { date = b.dataset.d; modal.classList.remove("show"); setMarket(b.dataset.m); window.scrollTo({ top: 0 }); });
+  sheet.querySelectorAll("button.hist").forEach(b => b.onclick = () => {
+    const r = all()[docId(b.dataset.d, b.dataset.m)];
+    if (r && (r.sends || []).length) return showSent(b.dataset.d, b.dataset.m);   // 已送出的：看當時送出的內容
+    date = b.dataset.d; modal.classList.remove("show"); setMarket(b.dataset.m); window.scrollTo({ top: 0 });
+  });
 }
 $("histBtn").onclick = () => showHistory();
+
+/* 已送出的內容（後台紀錄，唯讀）：可以再複製一次，或打開這天繼續填 */
+function showSent(d, m){
+  const r = all()[docId(d, m)] || {}, sends = r.sends || [];
+  sheet.dataset.sub = "sent";
+  sheet.innerHTML = `<h3>${fmtDate(d)} ${MKT[m]}</h3>
+    ${Object.keys(r.v || {}).length || r.note ? `<div class="state warn">這天分享之後又填了新的內容，還沒分享。</div>` : ""}
+    ${sends.map((x, i) => `<p class="prep-cat">${x.via === "copy" ? "複製" : "分享"}於 ${when(x.at)}</p>
+      <pre class="sent-pre" data-pv="${i}"></pre>
+      <div class="sync-btns"><button type="button" class="btn ghost" data-copy="${i}">${ICON.copy}再複製一次</button></div>`).join("")}
+    <div class="actions"><button type="button" class="btn ghost" id="sentBack">回紀錄</button><button type="button" class="btn" id="sentOpen">打開這天繼續填</button></div>`;
+  sheet.querySelectorAll("[data-pv]").forEach(pre => pre.textContent = stockText({ v: sends[pre.dataset.pv].v, note: sends[pre.dataset.pv].note }, d, m));
+  sheet.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(stockText({ v: sends[b.dataset.copy].v, note: sends[b.dataset.copy].note }, d, m), b));
+  $("sentBack").onclick = () => showHistory(true);
+  $("sentOpen").onclick = () => { date = d; modal.classList.remove("show"); setMarket(m); window.scrollTo({ top: 0 }); };
+  sheet.scrollTop = 0;
+}
 
 /* 備份與復原 */
 async function showBackup(){
