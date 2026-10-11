@@ -8,7 +8,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="訂購">
 <meta name="format-detection" content="telephone=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; form-action 'none'; base-uri 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: 'self'; manifest-src 'self'; worker-src 'self'; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://fodibhcjitnrgpvqttky.supabase.co; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>煙燻滷味訂購</title>
 <style>
@@ -315,7 +317,7 @@
   .dlg.show{display:flex}
   .dlg-box{background:var(--card);border-radius:16px;width:100%;max-width:340px;padding:20px}
   .dlg-box h4{margin:0 0 8px;font-size:18px;font-weight:600}
-  .dlg-box p{margin:0 0 14px;font-size:15px;color:var(--sub);line-height:1.55}
+  .dlg-box p{margin:0 0 14px;font-size:15px;color:var(--sub);line-height:1.55;white-space:pre-line}
   .dlg-btns{display:flex;gap:10px;margin-top:6px}
   .dlg-btns .btn{flex:1;min-width:0;padding:0 10px}
   .pin-in{width:100%;height:48px;border:none;border-radius:10px;background:var(--fill);font-size:20px;letter-spacing:.3em;text-align:center;margin-bottom:10px;outline:none}
@@ -343,6 +345,8 @@
   .sync-box{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:14px;color:var(--sub);display:flex;align-items:center;justify-content:space-between;gap:10px}
   .sync-box b{color:var(--ink);font-weight:500}
   .sync-box.cta{display:block}
+  .push-on{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:#E3F1E7;color:#2E6B44;font-weight:600}
+  .push-btn{flex:none;min-height:40px;padding:0 16px;border:none;border-radius:999px;background:var(--soy);color:#fff;font-size:15px;font-weight:600}
   .sync-box.cta .btn{width:100%;margin-top:10px}
   .pw-in{width:100%;height:48px;border:none;border-radius:10px;background:var(--fill);font-size:17px;padding:0 14px;margin-bottom:10px;outline:none}
   .pw-in:focus{background:var(--soy-tint)}
@@ -776,6 +780,96 @@ function unlockDialog(){
    更換店家密碼會換一組新金鑰；舊金鑰用新密碼加密後留在「金鑰圈」，舊手機還沒上傳的訂單才讀得到。
    刪除只是移到「最近刪除」，30 天內可以復原。 */
 const VAULT_KEY = "orderVault", ENC_KEY = "ordersEnc", LEGACY_KEY = "orders", MERGE_KEY = "ordersMerge", KEYS_KV = "vaultKeys";
+/* ===== 手機通知（網頁關掉也收得到）：Supabase 小程式轉送，通知裡沒有客人資料 ===== */
+const PUSH_URL = "https://fodibhcjitnrgpvqttky.supabase.co/functions/v1/push";
+const PUSH_KEY = "pushOn";
+const Push = {
+  supported(){ return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && window.isSecureContext; },
+  ios(){ return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); },
+  installed(){ return navigator.standalone === true || matchMedia("(display-mode: standalone)").matches; },
+  on(){ try { return !!localStorage.getItem(PUSH_KEY) && Notification.permission === "granted"; } catch (e) { return false; } },
+  async tag(){
+    const room = Sync.cfg().room || ""; if (!room) return "";
+    const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(room + "/push/v1"));
+    return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, "0")).join("");
+  },
+  async call(body){
+    const r = await fetch(PUSH_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "push " + r.status);
+    return j;
+  },
+  async reg(){ return navigator.serviceWorker.getRegistration("./"); },
+  async endpoint(){ try { const r = await this.reg(), s = r && await r.pushManager.getSubscription(); return s ? s.endpoint : ""; } catch (e) { return ""; } },
+  box(){
+    return `<div class="sync-box" id="pushBox"><span>🔔 手機通知<br><small>網頁關掉也會通知有新訂單</small></span>${this.on()
+      ? `<span><span class="push-on">通知中</span> <button type="button" class="link-btn" id="pushOff">關閉</button></span>`
+      : `<button type="button" class="push-btn" id="pushOn">開啟</button>`}</div>`;
+  },
+  bind(){
+    const a = $id("pushOn"), b = $id("pushOff");
+    if (a) a.onclick = () => this.enable();
+    if (b) b.onclick = () => this.disable();
+  },
+  repaint(){ const box = $id("pushBox"); if (box) { box.outerHTML = this.box(); this.bind(); } },
+  async enable(){
+    if (this.ios() && !this.installed()) {
+      await askConfirm({ title: "iPhone 要先加到主畫面", ok: "知道了", cancel: "關閉",
+        msg: "iPhone 規定網頁要先加到主畫面才能通知：\n1. 用 Safari 打開這個網頁\n2. 按下面的「分享」按鈕\n3. 選「加入主畫面」\n4. 從主畫面的「訂購」圖示打開，輸入一次店家密碼\n5. 再回到這裡按「開啟」" });
+      return;
+    }
+    if (!this.supported()) { toast("這支手機的瀏覽器不支援通知，請用 Chrome 或 Safari", true); return; }
+    const btn = $id("pushOn"); if (btn) { btn.disabled = true; btn.textContent = "設定中…"; }
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { toast("沒有允許通知。可以到手機的「設定」把這個網頁的通知打開", true); return; }
+      const reg = await navigator.serviceWorker.register("sw.js", { scope: "./" });
+      await navigator.serviceWorker.ready;
+      const tag = await this.tag(); if (!tag) { toast("請先開啟同步", true); return; }
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const { key } = await this.call({ op: "key" });
+        const raw = atob(key.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((key.length + 3) % 4));
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, c => c.charCodeAt(0)) });
+      }
+      await this.call({ op: "sub", tag, sub: sub.toJSON() });
+      localStorage.setItem(PUSH_KEY, tag);
+      toast("已開啟手機通知");
+    } catch (e) {
+      toast("開啟通知失敗，請再試一次", true);
+    } finally { this.repaint(); }
+  },
+  async disable(){
+    try {
+      const reg = await this.reg(), sub = reg && await reg.pushManager.getSubscription();
+      if (sub) { await this.call({ op: "unsub", endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe(); }
+    } catch (e) {}
+    try { localStorage.removeItem(PUSH_KEY); } catch (e) {}
+    toast("已關閉手機通知"); this.repaint();
+  },
+  /* 這支手機上傳了新增／修改／刪除 → 請伺服器通知其他手機（只送種類，不送內容） */
+  async notify(kinds){
+    try {
+      const tag = await this.tag(); if (!tag) return;
+      await this.call({ op: "notify", tag, kinds: kinds.slice(0, 50), from: await this.endpoint() });
+    } catch (e) {}
+  },
+  /* 更換店家密碼後房間變了：已開通知的手機自動改到新房間 */
+  async check(){
+    try {
+      const was = localStorage.getItem(PUSH_KEY); if (!was || !this.supported() || Notification.permission !== "granted" || !Sync.on()) return;
+      const tag = await this.tag(); if (!tag || tag === was) return;
+      const reg = await this.reg(), sub = reg && await reg.pushManager.getSubscription(); if (!sub) return;
+      await this.call({ op: "sub", tag, sub: sub.toJSON() }); localStorage.setItem(PUSH_KEY, tag);
+    } catch (e) {}
+  }
+};
+setTimeout(() => {
+  Push.check();
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener("message", e => { if (e.data && e.data.open === "orders") openOrders(); });
+  if (/[?&]orders\b/.test(location.search)) { history.replaceState(null, "", location.pathname); setTimeout(openOrders, 300); }
+}, 0);
+
 /* ===== 訂單更新通知（網頁開著時）：上方跳出、震動、提示音；網頁在背景時標題顯示數字 ===== */
 const Notify = {
   unread: 0, timer: null, ac: null,
@@ -1172,6 +1266,11 @@ const Sync = {
   },
   async pushPending(room){
     let changed = false;
+    const pushed = [];
+    try { return await this.pushPendingInner(room, pushed); } finally { if (pushed.length) Push.notify(pushed); }
+  },
+  async pushPendingInner(room, pushed){
+    let changed = false;
     const uid = await Cloud.uid();
     for (const id of Vault.records().filter(r => r.p).map(r => r.id)) {
       for (let tries = 0; tries < 4; tries++) {
@@ -1181,6 +1280,8 @@ const Sync = {
           const prev = b && base && Cloud.keepPrev({ ver: l.ver, by: b.by, rts: b.rts }, uid) ? { ...this.fields(b), ver: l.ver } : null;
           const res = await Cloud.put(room, id, this.fields(l), base, prev);
           this.markPushed(id, l, res, uid);
+          const t = Math.max(l.upd || 0, l.del || 0);
+          if (Date.now() - t < 10 * 60 * 1000) pushed.push(l.del ? "del" : !l.ut ? "new" : "edit");   // 剛剛才改的才通知（換房間搬資料不算）
           break;
         } catch (e) {
           if (e.code === "denied") { const why = await Cloud.diagnose(room); if (why !== "denied") throw e; }   // 被拒絕是因為版本不對 → 當成衝突
@@ -1697,6 +1798,7 @@ function showOrders(keepScroll){
         ? `<button type="button" class="link-btn" id="syncFix">輸入密碼</button>` : `<button type="button" class="link-btn" id="syncNow">立即同步</button>`}</div>`
       : `<div class="sync-box cta"><b>開啟多支手機同步</b><br>設定一組店家密碼，所有手機的訂單就會自動同步。這支手機現有的 ${all.length} 筆訂單會一起加密上傳。
         <button type="button" class="btn" id="enableSync">開啟同步</button></div>`}
+    ${Sync.on() ? Push.box() : ""}
     <p class="privacy">${Sync.on() ? "訂單加密後才同步到雲端，雲端只有亂碼。" : "訂單加密存在這支手機，不會上傳。"}電話預設遮蔽。刪除的訂單 ${TRASH_DAYS} 天內可以復原。</p>` +
     (all.length ? all.map((o, i) => `<div class="order${hasPending(o.items) ? " pending" : ""}">
       ${o.cf ? `<div class="pend-tag cf-tag">兩支手機同時修改了這筆，請確認<button type="button" class="link-btn" data-cf="${i}">比較版本</button></div>` : ""}
@@ -1727,6 +1829,7 @@ function showOrders(keepScroll){
   $("openManage").onclick = () => showManage();
   const op = $("openPrep"); if (op) op.onclick = () => showPrep();
   const sn = $("syncNow"); if (sn) sn.onclick = () => Sync.run();
+  Push.bind();
   const sf = $("syncFix"); if (sf) sf.onclick = () => rejoinDialog();
   const es = $("enableSync");
   if (es) es.onclick = async () => {
