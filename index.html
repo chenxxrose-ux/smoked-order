@@ -346,6 +346,17 @@
   .sync-box b{color:var(--ink);font-weight:500}
   .sync-box.cta{display:block}
   .unpriced{color:#B3261E;font-weight:600}
+  /* 訂單狀態 */
+  .st-seg{margin:0 0 12px;width:100%}
+  .st-seg button{font-size:14px;padding:0 2px}
+  .order .st-done{width:100%;margin-bottom:8px;background:#E3F1E7;color:#2E6B44;font-weight:600}
+  .order .st-done:active{background:#D2E8D9}
+  .st-tag{display:flex;align-items:center;gap:8px;margin:0 0 8px;padding:8px 12px;border-radius:10px;background:#E3F1E7;color:#2E6B44;font-size:15px;font-weight:600}
+  .st-tag small{font-weight:400;color:var(--sub);flex:1}
+  .st-tag .link-btn{font-size:13px}
+  .order.st-cancel .st-tag{background:#F3E3E3;color:#9A2A2A}
+  .order.st-cancel .preview{text-decoration:line-through;opacity:.55}
+  .order.st-picked .preview,.order.st-delivered .preview{opacity:.75}
   .push-on{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:#E3F1E7;color:#2E6B44;font-weight:600}
   .push-btn{flex:none;min-height:40px;padding:0 16px;border:none;border-radius:999px;background:var(--soy);color:#fff;font-size:15px;font-weight:600}
   .sync-box.cta .btn{width:100%;margin-top:10px}
@@ -669,7 +680,7 @@ function maskPhone(p){
 /* 產生可複製的純文字訂單 */
 /* opts.fullPhone=true 才會出現完整電話；預設遮蔽 */
 function buildText(o, opts = {}){
-  let t = `${o.name} ${opts.fullPhone ? String(o.phone || "") : maskPhone(o.phone)}\n`;
+  let t = (o.st ? `【${stLabel(o)}】\n` : "") + `${o.name} ${opts.fullPhone ? String(o.phone || "") : maskPhone(o.phone)}\n`;
   if (o.odate) t += `訂購 ${fmtDate(o.odate)}\n`;
   if (o.date) t += `取貨 ${fmtDate(o.date)}${o.ptime ? " " + o.ptime : ""}${o.market ? "・" + o.market : ""}\n`;
   if (o.addr) t += `地址：${opts.fullPhone ? o.addr : maskAddr(o.addr)}\n`;
@@ -888,7 +899,7 @@ const Notify = {
   label(n){
     const o = (Vault.orders || []).find(x => x.id === n.id) || ((Vault.trash || []).find(x => x.o.id === n.id) || {}).o;
     const who = o ? `${o.name || "客人"}${o.date ? " " + fmtDate(o.date) : ""}` : "";
-    const verb = { new: "新訂單", edit: "訂單有修改", del: "訂單被刪除", back: "訂單已復原" }[n.kind];
+    const verb = n.kind === "edit" && o && o.st ? stLabel(o) : { new: "新訂單", edit: "訂單有修改", del: "訂單被刪除", back: "訂單已復原" }[n.kind];
     return who ? `${verb}：${who}` : verb;
   },
   show(news){
@@ -1121,7 +1132,7 @@ const Vault = {
 /* 兩支手機同時改了同一筆訂單：逐欄三方比較（B 共同上一版、L 這支手機、R 雲端先同步的），不看手機時間。
    兩邊改了同一個地方而且不同 → 先用雲端的版本，這支手機的版本放在 cf.alt，列表會提示讓使用者選擇。 */
 const ORDER_FIELD = { name: "客人", surname: "姓氏", title: "稱謂", phone: "電話", addr: "地址", date: "取貨日期", ptime: "取貨時間", market: "市場", memo: "備註",
-  prep: "處理方式", pay: "付款", deposit: "訂金", items: "品項", odate: "訂購日" };
+  prep: "處理方式", pay: "付款", deposit: "訂金", items: "品項", odate: "訂購日", st: "狀態", stAt: "狀態時間" };
 function mergeOrder3(B, L, R){
   const out = {}, cf = [];
   const keys = new Set([...Object.keys(L), ...Object.keys(R), ...(B ? Object.keys(B) : [])]);
@@ -1802,6 +1813,26 @@ async function openOrders(){
   showOrders();
 }
 
+/* ===== 訂單狀態：待處理 → 已取貨／已送達，或取消 ===== */
+const ST_FILTERS = [["open", "待處理"], ["done", "已完成"], ["cancel", "已取消"], ["all", "全部"]];
+let listFilter = "open";
+const stGroup = o => o.st === "cancel" ? "cancel" : o.st ? "done" : "open";
+const stLabel = o => ({ picked: "已取貨", delivered: "已送達", cancel: "已取消" })[o.st] || "";
+async function setStatus(o, v, btn){
+  if (!o) return;
+  if (v === "cancel" && !(await askConfirm({ title: "取消這筆訂單？", ok: "取消訂單", cancel: "不要", danger: true,
+      msg: `${o.name} ${fmtDate(o.date)} 的訂單會移到「已取消」，備料統計也不會再算。之後還可以改回來。` }))) return;
+  if ((v === "picked" || v === "delivered") && hasPending(o.items) && !(await askConfirm({ title: "還有秤重沒補金額", ok: "還是標成" + (v === "picked" ? "已取貨" : "已送達"), cancel: "先補金額",
+      msg: "這筆有秤重品項還沒填實際金額，標成完成後比較容易忘記。確定嗎？" }))) { if (v) editWeigh(o); return; }
+  if (btn) btn.disabled = true;
+  const n = { ...o, st: v || "", stAt: v ? Date.now() : 0 };
+  if (!v) { delete n.st; delete n.stAt; }
+  try { await Vault.put(n); }
+  catch (e) { toast("沒有存成功，請再試一次", true); if (btn) btn.disabled = false; return; }
+  toast(v ? `已標成「${stLabel(n)}」` : "已改回待處理");
+  showOrders(true);
+}
+
 function showOrders(keepScroll){
   if (!Vault.orders) { openOrders(); return; }
   armIdle();
@@ -1815,12 +1846,18 @@ function showOrders(keepScroll){
       : `<div class="sync-box cta"><b>開啟多支手機同步</b><br>設定一組店家密碼，所有手機的訂單就會自動同步。這支手機現有的 ${all.length} 筆訂單會一起加密上傳。
         <button type="button" class="btn" id="enableSync">開啟同步</button></div>`}
     ${Sync.on() ? Push.box() : ""}
-    <p class="privacy">${Sync.on() ? "訂單加密後才同步到雲端，雲端只有亂碼。" : "訂單加密存在這支手機，不會上傳。"}電話預設遮蔽。刪除的訂單 ${TRASH_DAYS} 天內可以復原。</p>` +
-    (all.length ? all.map((o, i) => `<div class="order${hasPending(o.items) ? " pending" : ""}">
+    <p class="privacy">${Sync.on() ? "訂單加密後才同步到雲端，雲端只有亂碼。" : "訂單加密存在這支手機，不會上傳。"}電話預設遮蔽。刪除的訂單 ${TRASH_DAYS} 天內可以復原。</p>
+    ${all.length ? `<div class="seg st-seg" id="stSeg">${ST_FILTERS.map(([k, lab]) =>
+      `<button type="button" data-sf="${k}" class="${k === listFilter ? "on" : ""}">${lab} ${all.filter(o => stGroup(o) === k || k === "all").length}</button>`).join("")}</div>` : ""}` +
+    (all.length ? (all.some(o => listFilter === "all" || stGroup(o) === listFilter) ? "" : `<p class="note">這裡沒有訂單。</p>`) +
+    all.map((o, i) => (listFilter !== "all" && stGroup(o) !== listFilter) ? "" : `<div class="order${hasPending(o.items) && !o.st ? " pending" : ""}${o.st ? " st-" + o.st : ""}">
+      ${o.st ? `<div class="st-tag">${o.st === "cancel" ? "✕" : "✓"} ${stLabel(o)}${o.stAt ? `<small>${when(o.stAt)}</small>` : ""}
+        <button type="button" class="link-btn" data-st="${i}" data-v="">改回待處理</button></div>` : ""}
       ${o.cf ? `<div class="pend-tag cf-tag">兩支手機同時修改了這筆，請確認<button type="button" class="link-btn" data-cf="${i}">比較版本</button></div>` : ""}
-      ${hasPending(o.items) ? `<div class="pend-tag">${ICON.scale}有秤重品項還沒補金額</div>` : ""}
+      ${hasPending(o.items) && o.st !== "cancel" ? `<div class="pend-tag">${ICON.scale}有秤重品項還沒補金額</div>` : ""}
       <pre class="preview" data-pv="${i}"></pre>
-      ${o.items.some(l => l.weigh) ? `<button type="button" class="btn small weigh-btn" data-weigh="${i}">${ICON.scale}補秤重金額</button>` : ""}
+      ${o.items.some(l => l.weigh) && o.st !== "cancel" ? `<button type="button" class="btn small weigh-btn" data-weigh="${i}">${ICON.scale}補秤重金額</button>` : ""}
+      ${o.st ? "" : `<button type="button" class="btn small st-done" data-st="${i}" data-v="${o.market === "外送" ? "delivered" : "picked"}">${ICON.check}${o.market === "外送" ? "已送達" : "已取貨"}</button>`}
       <div class="order-btns">
         <button type="button" class="btn share small" data-share="${i}">${ICON.share}分享這筆</button>
         <button type="button" class="btn ghost small" data-edit="${i}">${ICON.edit}修改</button></div>
@@ -1830,6 +1867,7 @@ function showOrders(keepScroll){
         <button type="button" class="link-btn" data-fullshare="${i}">${o.addr ? "含電話地址分享" : "含電話分享"}</button>
         ${Sync.on() ? `<button type="button" class="link-btn" data-revs="${i}">歷史版本</button>` : ""}
         ${o.addr ? `<a class="link-btn" data-nav="${i}" target="_blank" rel="noopener noreferrer">導航</a>` : ""}
+        ${o.st ? "" : `<button type="button" class="link-btn" data-st="${i}" data-v="cancel">取消訂單</button>`}
         <button type="button" class="del-btn" data-del="${i}">刪除</button></div></div>`).join("")
       : `<p class="note">還沒有訂單。送出第一筆後，會出現在這裡。</p>`) +
     (all.length > 1 ? `<div class="actions"><button type="button" class="btn ghost" id="copyAll">${ICON.copy}複製全部訂單（電話遮蔽）</button></div>` : "") +
@@ -1855,6 +1893,8 @@ function showOrders(keepScroll){
   };
   $("lockNow").onclick = () => { Vault.lock(true); close(); toast("訂單已鎖定，下次查看要輸入店家密碼"); };
   sheet.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(buildText(all[b.dataset.copy]), b));
+  sheet.querySelectorAll("[data-sf]").forEach(b => b.onclick = () => { listFilter = b.dataset.sf; showOrders(); });
+  sheet.querySelectorAll("[data-st]").forEach(b => b.onclick = () => setStatus(all[b.dataset.st], b.dataset.v, b));
   sheet.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareText(buildText(all[b.dataset.share]), b));
   sheet.querySelectorAll("[data-weigh]").forEach(b => b.onclick = () => editWeigh(all[b.dataset.weigh]));
   sheet.querySelectorAll("[data-cf]").forEach(b => b.onclick = () => showConflict(all[b.dataset.cf]));
@@ -1998,7 +2038,7 @@ function showPrep(){
     const today = ymd(new Date()), dates = [...new Set(all.map(o => o.date).filter(Boolean))].sort();
     prepDate = dates.includes(today) ? today : (dates.find(d => d >= today) || dates[dates.length - 1] || today);
   }
-  const dayOrders = all.filter(o => o.date === prepDate && (!prepMk || o.market === prepMk));
+  const dayOrders = all.filter(o => o.date === prepDate && (!prepMk || o.market === prepMk) && o.st !== "cancel");   // 取消的不用備料
   const rows = prepSummary(dayOrders);
   const known = dayOrders.reduce((s, o) => s + calcTotal(o.items), 0);
   const pend = dayOrders.filter(o => hasPending(o.items)).length;
