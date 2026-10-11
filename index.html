@@ -290,6 +290,15 @@
   .state.bad{background:var(--red-soft);color:var(--red)}
   .net-bar,.edit-bar{position:sticky;z-index:4;padding:9px 16px;font-size:14px;text-align:center}
   .net-bar{top:0;background:#FBF1DE;color:#8A5A00}
+  /* 別支手機有新訂單／修改：上方跳出通知 */
+  .news-bar{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 10px);z-index:60;display:flex;align-items:center;gap:10px;
+    min-height:54px;padding:10px 14px;border:none;border-radius:16px;background:var(--soy);color:#fff;font-size:16px;font-weight:500;text-align:left;
+    box-shadow:0 8px 24px rgba(0,0,0,.22);animation:newsIn .28s ease-out}
+  .news-bar[hidden]{display:none}
+  .news-bar #newsTxt{flex:1;min-width:0;line-height:1.35}
+  .news-bar .news-ic{font-size:20px}
+  .news-bar .news-go{flex:none;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.2);font-size:14px}
+  @keyframes newsIn{from{transform:translateY(-120%);opacity:0}to{transform:none;opacity:1}}
   .edit-bar{top:0;background:var(--soy);color:#fff;display:flex;align-items:center;justify-content:center;gap:8px}
   .edit-bar .link-btn{color:#fff;min-height:36px}
   .pend-n{color:#B26A00;font-size:13px}
@@ -377,6 +386,7 @@
   </div>
 </header>
 
+<button type="button" class="news-bar" id="newsBar" hidden><span class="news-ic">🔔</span><span id="newsTxt"></span><span class="news-go">查看</span></button>
 <div class="net-bar" id="netBar" hidden>目前離線：可以繼續接單，訂單先存在這支手機，有網路後自動同步</div>
 <div class="edit-bar" id="editBar" hidden>正在修改 <b id="editName"></b> 的訂單 <button type="button" class="link-btn" id="cancelEdit">取消修改</button></div>
 <main>
@@ -766,6 +776,48 @@ function unlockDialog(){
    更換店家密碼會換一組新金鑰；舊金鑰用新密碼加密後留在「金鑰圈」，舊手機還沒上傳的訂單才讀得到。
    刪除只是移到「最近刪除」，30 天內可以復原。 */
 const VAULT_KEY = "orderVault", ENC_KEY = "ordersEnc", LEGACY_KEY = "orders", MERGE_KEY = "ordersMerge", KEYS_KV = "vaultKeys";
+/* ===== 訂單更新通知（網頁開著時）：上方跳出、震動、提示音；網頁在背景時標題顯示數字 ===== */
+const Notify = {
+  unread: 0, timer: null, ac: null,
+  label(n){
+    const o = (Vault.orders || []).find(x => x.id === n.id) || ((Vault.trash || []).find(x => x.o.id === n.id) || {}).o;
+    const who = o ? `${o.name || "客人"}${o.date ? " " + fmtDate(o.date) : ""}` : "";
+    const verb = { new: "新訂單", edit: "訂單有修改", del: "訂單被刪除", back: "訂單已復原" }[n.kind];
+    return who ? `${verb}：${who}` : verb;
+  },
+  show(news){
+    const who = this.label(news[0]).split("：")[1];
+    const txt = news.length === 1 ? this.label(news[0]) : `有 ${news.length} 筆訂單更新${who ? `（${who} 等）` : ""}`;
+    $id("newsTxt").textContent = txt;            // textContent：客人名字不會被當成程式碼
+    $id("newsBar").hidden = false;
+    clearTimeout(this.timer); this.timer = setTimeout(() => this.hide(), 10000);
+    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (e) {}
+    this.beep();
+    if (document.hidden) { this.unread += news.length; document.title = `(${this.unread}) ${this.title}`; }
+  },
+  hide(){ $id("newsBar").hidden = true; },
+  beep(){
+    try {
+      const ac = this.ac; if (!ac || ac.state !== "running") return;
+      [0, 0.18].forEach(t => {
+        const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 880;
+        g.gain.setValueAtTime(0.0001, ac.currentTime + t); g.gain.exponentialRampToValueAtTime(0.25, ac.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.15);
+        o.connect(g).connect(ac.destination); o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.16);
+      });
+    } catch (e) {}
+  },
+  init(){
+    this.title = document.title;
+    $id("newsBar").onclick = () => { this.hide(); openOrders(); };
+    // 手機規定：要先點過畫面才能發出聲音
+    const wake = () => { try { if (!this.ac) { const A = window.AudioContext || window.webkitAudioContext; if (A) this.ac = new A(); } if (this.ac && this.ac.state === "suspended") this.ac.resume(); } catch (e) {} };
+    document.addEventListener("pointerdown", wake, { passive: true });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) { this.unread = 0; document.title = this.title; } });
+  }
+};
+setTimeout(() => Notify.init(), 0);
+
 const Vault = {
   pub: null, priv: null, keys: null, kid: "", orders: null, trash: null, unlockedAt: 0,
   supported(){ return !!(window.isSecureContext && window.crypto && crypto.subtle); },
@@ -1063,7 +1115,9 @@ const Sync = {
     const full = !this.lastFull || Date.now() - this.lastFull > FULL_MS;
     if (full || ++this.n % 5 === 0) { const rd = await Cloud.room(room); if (rd && rd.retired) throw new CloudError("retired"); }   // 約每 30 秒確認密碼有沒有被更換
     const docs = full ? await Cloud.list(room) : await Cloud.changedSince(room, (c.cursor || 0) - 10000);
-    changed = this.applyRemote(docs, full) || changed;
+    let me = ""; try { me = await Cloud.uid(); } catch (e) {}
+    const news = [];
+    changed = this.applyRemote(docs, full, me, news) || changed;
     changed = (await this.pushPending(room)) || changed;
     if (full) {
       this.lastFull = Date.now();
@@ -1071,6 +1125,7 @@ const Sync = {
       Cloud.backupDaily(room, docs).catch(() => {});   // 雲端每日加密備份（今天已經有就跳過）
     }
     if (changed) await Vault.reload();
+    if (news.length) Notify.show(news);
     return changed;
   },
   fromDoc(d){
@@ -1079,8 +1134,9 @@ const Sync = {
       dtsRaw: d.dtsRaw, by: d.data.by, rts: d.data.ts };
   },
   fields(l){ return { iv: l.iv, ct: l.wk + "." + l.ct, upd: l.upd, del: l.del || 0, kid: l.kid, ver: l.ver }; },
-  applyRemote(docs, full){
+  applyRemote(docs, full, me, news){
     const recs = Vault.records(), byId = new Map(recs.map(r => [r.id, r])), known = new Set(this.cfg().known || []);
+    const first = !this.cfg().cursor;   // 第一次同步（新手機）不通知，免得一次跳一大堆
     let changed = false, maxTs = this.cfg().cursor || 0;
     const seen = new Set();
     for (const d of docs) {
@@ -1093,6 +1149,8 @@ const Sync = {
       if (l && l.p && !l.ut && !l.base && l.upd === (d.data.upd || 0) && !!l.del === !!d.data.del) { byId.set(id, this.fromDoc(d)); continue; }
       if (l && l.p) continue;    // 這支手機有待上傳的修改（上傳時合併）
       byId.set(id, this.fromDoc(d)); changed = true;
+      if (news && !first && me && d.data.by && d.data.by !== me)   // 只通知「別支手機」做的新增／修改／刪除
+        news.push({ id, kind: !l ? "new" : d.data.del && !l.del ? "del" : !d.data.del && l.del ? "back" : "edit" });
     }
     if (full) {
       for (const l of byId.values()) {
