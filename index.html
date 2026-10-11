@@ -355,6 +355,9 @@
   .st-tag small{font-weight:400;color:var(--sub);flex:1}
   .st-tag .link-btn{font-size:13px}
   .order.st-cancel .st-tag{background:#F3E3E3;color:#9A2A2A}
+  .refund-box{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 8px;padding:8px 12px;border-radius:10px;background:#FBF1DE;color:#6B4A00;font-size:14px}
+  .refund-box span{display:flex;gap:10px;margin-left:auto}
+  .refund-box .rf-done{color:#2E6B44}
   .order.st-cancel .preview{text-decoration:line-through;opacity:.55}
   .order.st-picked .preview,.order.st-delivered .preview{opacity:.75}
   .push-on{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:#E3F1E7;color:#2E6B44;font-weight:600}
@@ -542,7 +545,7 @@ function showPrices(focusKey){
   sheet.dataset.view = ""; sheet.dataset.sub = "prices";
   sheet.innerHTML = html; modal.classList.add("show"); sheet.scrollTop = 0;
   sheet.querySelectorAll("[data-ps]").forEach(inp => inp.addEventListener("input", () => {
-    prices[inp.dataset.ps] = Number(inp.value) || 0; savePrices(); paintPrices(); update();
+    prices[inp.dataset.ps] = money(inp.value); if (inp.value && Number(inp.value) < 0) inp.value = ""; savePrices(); paintPrices(); update();
   }));
   const f = focusKey && sheet.querySelector(`[data-ps="${focusKey}"]`);
   if (f) setTimeout(() => { f.scrollIntoView({ block: "center" }); f.focus(); }, 80);
@@ -628,12 +631,12 @@ function render(){
   });
   menu.addEventListener("input", e => {
     if (e.target.dataset.amt) {
-      const k = e.target.dataset.amt; amounts[k] = Number(e.target.value) || 0;
+      const k = e.target.dataset.amt; amounts[k] = money(e.target.value); if (Number(e.target.value) < 0) e.target.value = "";
       if (amounts[k] > 0 && !want[k]) { want[k] = true; menu.querySelector(`[data-want="${k}"]`).classList.add("on"); }
       update();
     }
 
-    if (e.target.dataset.p) { prices[e.target.dataset.p] = Number(e.target.value) || 0; savePrices(); update(); }
+    if (e.target.dataset.p) { prices[e.target.dataset.p] = money(e.target.value); savePrices(); update(); }
   });
 }
 
@@ -690,8 +693,11 @@ function buildText(o, opts = {}){
   o.total = calcTotal(o.items);
   t += `\n合計 $${o.total}${totalNote(o.items)}`;
   if (o.pay) t += `\n${payText(o)}`;
+  if (o.st === "cancel" && o.refund) t += `\n已收 $${paidOf(o)}・${REFUND[o.refund]}`;
   return t;
 }
+/* 金額一律是 0 以上的整數（負數、亂打都當 0） */
+const money = v => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(n, 9999999) : 0; };
 function calcTotal(items){ return items.reduce((s, l) => s + (l.sub || 0), 0); }
 const hasUnpriced = items => items.some(l => l.sub === null && !l.weigh);
 /* 合計後面的提醒：秤重還沒補、或有品項沒設價格 → 合計不是最後金額 */
@@ -1132,7 +1138,7 @@ const Vault = {
 /* 兩支手機同時改了同一筆訂單：逐欄三方比較（B 共同上一版、L 這支手機、R 雲端先同步的），不看手機時間。
    兩邊改了同一個地方而且不同 → 先用雲端的版本，這支手機的版本放在 cf.alt，列表會提示讓使用者選擇。 */
 const ORDER_FIELD = { name: "客人", surname: "姓氏", title: "稱謂", phone: "電話", addr: "地址", date: "取貨日期", ptime: "取貨時間", market: "市場", memo: "備註",
-  prep: "處理方式", pay: "付款", deposit: "訂金", items: "品項", odate: "訂購日", st: "狀態", stAt: "狀態時間" };
+  prep: "處理方式", pay: "付款", deposit: "訂金", items: "品項", odate: "訂購日", st: "狀態", stAt: "狀態時間", refund: "退款", refundAt: "退款時間" };
 function mergeOrder3(B, L, R){
   const out = {}, cf = [];
   const keys = new Set([...Object.keys(L), ...Object.keys(R), ...(B ? Object.keys(B) : [])]);
@@ -1641,6 +1647,10 @@ document.getElementById("submitBtn").onclick = async () => {
   if (!market && !(await pickMarket())) return;
   const who = validate();
   if (!who) return;
+  const dep0 = pay === "deposit" ? money(depInput.value) : 0, est0 = currentTotal() + getLines().reduce((s, l) => s + (l.sub === null ? (l.est || 0) : 0), 0);
+  if (dep0 >= 10000 || (est0 > 0 && dep0 > est0 * 2 && dep0 >= 2000)) {   // 異常大額：可能多打一個 0
+    if (!(await askConfirm({ title: `訂金 $${dep0}？`, ok: "沒錯", cancel: "回去改", msg: `訂金金額比較大${est0 ? `（目前預估約 $${est0}）` : ""}，確定沒有多打一個 0 嗎？` }))) { depInput.focus(); return; }
+  }
   const lines = getLines();
   if (!lines.length) return;
   const total = lines.reduce((s, l) => s + (l.sub || 0), 0);
@@ -1658,7 +1668,7 @@ document.getElementById("submitBtn").onclick = async () => {
     ${memo ? `<div class="row"><span>備註</span><span>${escapeHtml(memo)}</span></div>` : ""}</div>
     <div class="rows items">${lines.map(l => `<div class="row"><span>${l.text}</span><span${l.sub === null && !l.weigh ? ' class="unpriced"' : ""}>${l.sub === null ? (l.weigh ? "待秤" : "未定價") : "$" + l.sub}</span></div>`).join("")}
     <div class="row total"><span>合計</span><span>$${total}${totalNote(lines)}</span></div></div>
-    ${unpriced ? `<div class="state warn">有品項還沒設價格，合計沒有算到。可以先到「單價設定」補上。</div>` : ""}
+    ${unpriced ? `<div class="state warn">有品項還沒定價，合計沒有算到，收錢前要再確認。</div>` : ""}
     <div class="actions"><button type="button" class="btn ghost" id="back">返回修改</button><button type="button" class="btn" id="confirm">儲存訂單</button></div>`;
   modal.classList.add("show");
   document.getElementById("back").onclick = () => modal.classList.remove("show");
@@ -1671,7 +1681,14 @@ document.getElementById("submitBtn").onclick = async () => {
       prep: { ...prep }, pay, deposit: pay === "deposit" ? (Number(depInput.value) || 0) : 0,
       items: lines.map(l => ({ cat: l.cat, nm: l.nm, sp: l.sp || "", kind: l.kind, q: l.q, short: l.short, item: l.item, sub: l.sub, weigh: !!l.weigh, est: l.est || null })), total };
     if (base) {                                 // 修改：已秤好的金額保留
-      order.items.forEach(l => { if (l.weigh && l.sub === null) { const old = base.items.find(x => x.weigh && x.sub !== null && (x.nm || x.short) === (l.nm || l.short)); if (old) l.sub = old.sub; } });
+      // 秤重品項：名稱、規格、數量、預估金額都沒變才保留已秤好的金額；改了就重新標成待秤
+      const used = new Set();
+      order.items.forEach(l => {
+        if (!l.weigh || l.sub !== null) return;
+        const j = base.items.findIndex((x, xi) => !used.has(xi) && x.weigh && x.sub !== null && x.sub !== undefined
+          && (x.nm || x.short) === (l.nm || l.short) && (x.sp || "") === (l.sp || "") && Number(x.q) === Number(l.q) && (x.kind || "") === (l.kind || "") && (l.kind !== "amount" || (Number(x.est) || 0) === (Number(l.est) || 0)));   // 「要買多少錢」的品項，金額就是份量
+        if (j >= 0) { used.add(j); l.sub = base.items[j].sub; }
+      });
       order.total = calcTotal(order.items);
     }
     if (!Vault.supported()) { showSaveResult(order, "nosupport"); return; }
@@ -1701,7 +1718,8 @@ async function syncOne(id, ms){
     const rec = Vault.records().find(r => r.id === id);
     if (!rec || !rec.p) return "synced";
     if (!navigator.onLine) return "offline";
-    if (!Sync.busy) await Sync.run(); else await new Promise(r => setTimeout(r, 250));
+    if (!Sync.busy) { await Sync.run(); if (Sync.state === "err") await new Promise(r => setTimeout(r, 1500)); }   // 失敗了稍等再試，不要一直打伺服器
+    else await new Promise(r => setTimeout(r, 250));
   }
   const rec = Vault.records().find(r => r.id === id);
   return !rec || !rec.p ? "synced" : navigator.onLine ? "retry" : "offline";
@@ -1818,19 +1836,40 @@ const ST_FILTERS = [["open", "待處理"], ["done", "已完成"], ["cancel", "�
 let listFilter = "open";
 const stGroup = o => o.st === "cancel" ? "cancel" : o.st ? "done" : "open";
 const stLabel = o => ({ picked: "已取貨", delivered: "已送達", cancel: "已取消" })[o.st] || "";
+const REFUND = { todo: "待退款", done: "已退款", none: "不退款" };
 async function setStatus(o, v, btn){
   if (!o) return;
+  const paid = paidOf(o);
   if (v === "cancel" && !(await askConfirm({ title: "取消這筆訂單？", ok: "取消訂單", cancel: "不要", danger: true,
-      msg: `${o.name} ${fmtDate(o.date)} 的訂單會移到「已取消」，備料統計也不會再算。之後還可以改回來。` }))) return;
-  if ((v === "picked" || v === "delivered") && hasPending(o.items) && !(await askConfirm({ title: "還有秤重沒補金額", ok: "還是標成" + (v === "picked" ? "已取貨" : "已送達"), cancel: "先補金額",
-      msg: "這筆有秤重品項還沒填實際金額，標成完成後比較容易忘記。確定嗎？" }))) { if (v) editWeigh(o); return; }
+      msg: `${o.name} ${fmtDate(o.date)} 的訂單會移到「已取消」，備料統計也不會再算。之後還可以改回來。${paid ? `\n\n已收 $${paid}，會記成「待退款」，退了再按「已退款」。` : ""}` }))) return;
+  if (v === "picked" || v === "delivered") {
+    // 交貨和付款是分開的：標成完成不會改付款狀態，只提醒還有哪些沒處理
+    const items = o.items || [], warn = [];
+    if (hasPending(items)) warn.push("有秤重品項還沒補金額");
+    if (hasUnpriced(items)) warn.push("有品項還沒定價");
+    if (o.pay !== "full") warn.push(o.pay === "deposit" ? payText(o).replace("・", "，") : "還沒付款");
+    if (warn.length && !(await askConfirm({ title: "這筆還有沒處理的", ok: "還是標成" + (v === "picked" ? "已取貨" : "已送達"), cancel: "先不要",
+        msg: warn.map(x => "・" + x).join("\n") + "\n\n標成完成不會改變付款狀態，收到錢要另外標「已付清」。" }))) return;
+  }
   if (btn) btn.disabled = true;
   const n = { ...o, st: v || "", stAt: v ? Date.now() : 0 };
-  if (!v) { delete n.st; delete n.stAt; }
+  if (v === "cancel" && paid) { n.refund = "todo"; n.refundAt = 0; }
+  if (!v) { delete n.st; delete n.stAt; delete n.refund; delete n.refundAt; }   // 改回待處理：備料統計重新計入
   try { await Vault.put(n); }
   catch (e) { toast("沒有存成功，請再試一次", true); if (btn) btn.disabled = false; return; }
   toast(v ? `已標成「${stLabel(n)}」` : "已改回待處理");
   showOrders(true);
+}
+async function setRefund(o, v){
+  try { await Vault.put({ ...o, refund: v, refundAt: Date.now() }); } catch (e) { toast("沒有存成功，請再試一次", true); return; }
+  toast(`已記錄「${REFUND[v]}」`); showOrders(true);
+}
+/* 收到全部的錢：只有金額都確定了才能標已付清 */
+async function setPaid(o){
+  if (hasPending(o.items || []) || hasUnpriced(o.items || [])) { toast("還有秤重或未定價的品項，金額確定後才能標已付清", true); return; }
+  try { await Vault.put({ ...o, pay: "full", deposit: 0, paidAt: Date.now(), depositWas: o.pay === "deposit" ? o.deposit : undefined }); }
+  catch (e) { toast("沒有存成功，請再試一次", true); return; }
+  toast("已標成「已付清」"); showOrders(true);
 }
 
 function showOrders(keepScroll){
@@ -1853,6 +1892,10 @@ function showOrders(keepScroll){
     all.map((o, i) => (listFilter !== "all" && stGroup(o) !== listFilter) ? "" : `<div class="order${hasPending(o.items) && !o.st ? " pending" : ""}${o.st ? " st-" + o.st : ""}">
       ${o.st ? `<div class="st-tag">${o.st === "cancel" ? "✕" : "✓"} ${stLabel(o)}${o.stAt ? `<small>${when(o.stAt)}</small>` : ""}
         <button type="button" class="link-btn" data-st="${i}" data-v="">改回待處理</button></div>` : ""}
+      ${o.st === "cancel" && o.refund ? `<div class="refund-box">已收 $${paidOf(o)}・<b class="rf-${o.refund}">${REFUND[o.refund]}</b>
+        ${o.refund === "todo" ? `<span><button type="button" class="link-btn" data-rf="${i}" data-v="done">已退款</button>
+          <button type="button" class="link-btn" data-rf="${i}" data-v="none">不退款</button></span>`
+          : `<button type="button" class="link-btn" data-rf="${i}" data-v="todo">改回待退款</button>`}</div>` : ""}
       ${o.cf ? `<div class="pend-tag cf-tag">兩支手機同時修改了這筆，請確認<button type="button" class="link-btn" data-cf="${i}">比較版本</button></div>` : ""}
       ${hasPending(o.items) && o.st !== "cancel" ? `<div class="pend-tag">${ICON.scale}有秤重品項還沒補金額</div>` : ""}
       <pre class="preview" data-pv="${i}"></pre>
@@ -1867,6 +1910,7 @@ function showOrders(keepScroll){
         <button type="button" class="link-btn" data-fullshare="${i}">${o.addr ? "含電話地址分享" : "含電話分享"}</button>
         ${Sync.on() ? `<button type="button" class="link-btn" data-revs="${i}">歷史版本</button>` : ""}
         ${o.addr ? `<a class="link-btn" data-nav="${i}" target="_blank" rel="noopener noreferrer">導航</a>` : ""}
+        ${o.st !== "cancel" && o.pay !== "full" ? `<button type="button" class="link-btn" data-paid="${i}">標成已付清</button>` : ""}
         ${o.st ? "" : `<button type="button" class="link-btn" data-st="${i}" data-v="cancel">取消訂單</button>`}
         <button type="button" class="del-btn" data-del="${i}">刪除</button></div></div>`).join("")
       : `<p class="note">還沒有訂單。送出第一筆後，會出現在這裡。</p>`) +
@@ -1895,6 +1939,8 @@ function showOrders(keepScroll){
   sheet.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(buildText(all[b.dataset.copy]), b));
   sheet.querySelectorAll("[data-sf]").forEach(b => b.onclick = () => { listFilter = b.dataset.sf; showOrders(); });
   sheet.querySelectorAll("[data-st]").forEach(b => b.onclick = () => setStatus(all[b.dataset.st], b.dataset.v, b));
+  sheet.querySelectorAll("[data-rf]").forEach(b => b.onclick = () => setRefund(all[b.dataset.rf], b.dataset.v));
+  sheet.querySelectorAll("[data-paid]").forEach(b => b.onclick = () => setPaid(all[b.dataset.paid]));
   sheet.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareText(buildText(all[b.dataset.share]), b));
   sheet.querySelectorAll("[data-weigh]").forEach(b => b.onclick = () => editWeigh(all[b.dataset.weigh]));
   sheet.querySelectorAll("[data-cf]").forEach(b => b.onclick = () => showConflict(all[b.dataset.cf]));
@@ -1947,10 +1993,12 @@ function editWeigh(o){
   const first = sheet.querySelector("[data-wi]"); if (first) setTimeout(() => first.focus(), 50);
   document.getElementById("wBack").onclick = showOrders;
   document.getElementById("wSave").onclick = async e => {
+    const bad = [...sheet.querySelectorAll("[data-wi]")].find(inp => inp.value.trim() !== "" && !(Number.isInteger(Number(inp.value)) && Number(inp.value) >= 0));
+    if (bad) { toast("金額要是 0 以上的整數", true); bad.focus(); return; }
     e.currentTarget.disabled = true;
     sheet.querySelectorAll("[data-wi]").forEach(inp => {
       const v = inp.value.trim();
-      o.items[inp.dataset.wi].sub = v === "" ? null : (Number(v) || 0);
+      o.items[inp.dataset.wi].sub = v === "" ? null : money(v);
     });
     o.total = calcTotal(o.items);
     try { await Vault.put(o); } catch (err) { toast("儲存失敗，請再試一次", true); e.currentTarget.disabled = false; return; }
@@ -2512,8 +2560,8 @@ depInput.addEventListener("input", () => { updateOwe(); paintOpt(); if ($id("pay
 setTimeout(paintOpt, 0);
 function currentTotal(){ return getLines().reduce((s, l) => s + (l.sub || 0), 0); }
 function updateOwe(){
-  const dep = Number(depInput.value) || 0, tot = currentTotal();
-  document.getElementById("owe").textContent = dep && tot ? `尚欠 $${Math.max(0, tot - dep)}` : "";
+  const dep = money(depInput.value), lines = getLines(), tot = currentTotal();
+  document.getElementById("owe").textContent = !dep ? "" : (hasPending(lines) || hasUnpriced(lines)) ? "尾款待確認" : tot ? `尾款 $${Math.max(0, tot - dep)}` : "";
 }
 /* 付款金額檢查：訂金要是正整數、不能比已知總額多；還有秤重或未定價就不能選「已付清」 */
 function payProblem(lines){
@@ -2523,16 +2571,22 @@ function payProblem(lines){
     if (!raw) return "請填訂金金額";
     if (!Number.isInteger(dep) || dep <= 0) return "訂金要是大於 0 的整數";
     if (!open && tot > 0 && dep > tot) return `訂金 $${dep} 比合計 $${tot} 還多，請確認`;
-    if (open && tot > 0 && dep > tot + 100000) return "訂金金額太大，請確認";
   }
   if (pay === "full" && open) return "還有秤重或未定價的品項，金額還沒確定，不能選「已付清」。可以先選「付訂金」";
   return "";
 }
 function payText(o){
   if (o.pay === "full") return "已付清";
-  if (o.pay === "deposit") return `訂金 $${o.deposit}・尚欠 $${Math.max(0, o.total - o.deposit)}${o.items && hasPending(o.items) ? "＋秤重" : ""}${o.items && hasUnpriced(o.items) ? "＋未定價" : ""}`;
+  if (o.pay === "deposit") {
+    const items = o.items || [], dep = Number(o.deposit) || 0;
+    if (hasPending(items) || hasUnpriced(items)) return `訂金 $${dep}・尾款待金額確認後計算`;
+    const bal = calcTotal(items) - dep;
+    return bal >= 0 ? `訂金 $${dep}・尾款 $${bal}` : `訂金 $${dep}・應退 $${-bal}`;
+  }
   return "未付款";
 }
+/* 已經收了多少錢（取消時要退款用） */
+const paidOf = o => o.pay === "full" ? calcTotal(o.items || []) : o.pay === "deposit" ? (Number(o.deposit) || 0) : 0;
 
 /* ===== 取貨時間：依市場營業時間列出（每 30 分鐘） ===== */
 const HOURS = { "早市": [6, 13], "爸爸市場": [12, 20], "媽媽市場": [12, 20], "外送": [6, 20] };
