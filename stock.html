@@ -632,10 +632,9 @@ function specCount(spec, v){
   return m ? `${v} ${m[1]}` : Number(v) === 1 ? spec : `${v} 個${spec}`;
 }
 /* 分享（只列有剩的）：分類前面加圖示，在 LINE 群組比較好認 */
-/* 分隔線＋「■ 類別」（不用 emoji，每支手機看起來都一樣） */
-const SHARE_SEP = "━━━━━━━━━━";
+/* 分類寫在分隔線裡：━━ 煙燻 ━━━━━━（不用 emoji，每支手機看起來都一樣） */
 const SHARE_HEAD = { "煙燻": "煙燻", "滷味": "滷味", "備品": "要帶" };
-const shareHead = c => `${SHARE_SEP}\n■ ${SHARE_HEAD[c] || catLabel(c)}`;
+const shareHead = c => `━━ ${SHARE_HEAD[c] || catLabel(c)} ━━━━━━`;
 function stockText(){
   const rec = cur(), d = fmtDate(date).replace("(", "（").replace(")", "）");
   let t = `【剩貨】${d}${MKT[mk]}\n`, cat = "";
@@ -647,8 +646,8 @@ function stockText(){
     g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? specCount(r.spec, v) : `${v}${r.unit ? " " + r.unit : ""}`);
   });
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
-  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `${shareHead(cat)}\n`; } t += `　${g.grp}　${g.parts.join("＋")}\n`; });
-  if (rec.note) t += `${SHARE_SEP}\n※ ${rec.note}`;
+  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n${shareHead(cat)}\n`; } t += `　${g.grp}　${g.parts.join("＋")}\n`; });
+  if (rec.note) t += `\n※ ${rec.note}`;
   return t.trim();
 }
 /* 頂部固定：正在記哪一天、哪個市場、存了沒 */
