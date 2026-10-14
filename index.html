@@ -170,6 +170,7 @@
   .order .preview{background:var(--paper);border-radius:10px;padding:12px}
 
   .share-actions{display:flex;gap:10px;margin-top:4px}
+  .ln-full{width:100%;margin-top:4px}
   .share-actions .btn{flex:1;min-width:0;padding:0 12px}
   @media (max-width:380px){ .share-actions{flex-direction:column} }
   @media (max-width:340px){ .order-btns{grid-template-columns:1fr} .seg.small{width:120px} .pin input{width:46px} .grp .it-sub .spec{min-width:0} .grp .it{padding-left:6px} }
@@ -322,6 +323,9 @@
   .dlg-btns .btn{flex:1;min-width:0;padding:0 10px}
   .pin-in{width:100%;height:48px;border:none;border-radius:10px;background:var(--fill);font-size:20px;letter-spacing:.3em;text-align:center;margin-bottom:10px;outline:none}
   .pin-in:focus{background:var(--soy-tint)}
+  .ln-code{font-size:34px;font-weight:700;letter-spacing:.12em;text-align:center;font-variant-numeric:tabular-nums;padding:10px 0 4px;color:var(--ink)}
+  .btn.line{background:#06C755;color:#fff}
+  .btn.line:active{background:#05A847}
   .dlg-err{color:var(--red);font-size:13px;min-height:18px;margin:-4px 0 6px}
   .btn.danger{background:var(--red);color:#fff}
   .btn.danger:active{background:#8F1E18}
@@ -488,7 +492,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=4"></script>
-<script src="core.js?v=6"></script>
+<script src="core.js?v=7"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -738,8 +742,9 @@ async function shareText(text, btn){
 function shareBlock(shareLabel, copyLabel){
   return `<pre class="preview" data-preview></pre>
     <div class="phone-opt"><span data-phstate></span><button type="button" class="link-btn" data-phtoggle></button></div>
+    <button type="button" class="btn line ln-full" data-act="line">傳到 LINE 群組</button>
     <div class="share-actions">
-      <button type="button" class="btn share" data-act="share">${ICON.share}${shareLabel}</button>
+      <button type="button" class="btn ghost" data-act="share">${ICON.share}${shareLabel}</button>
       <button type="button" class="btn ghost" data-act="copy">${ICON.copy}${copyLabel}</button></div>`;
 }
 function bindShare(root, o){
@@ -761,6 +766,10 @@ function bindShare(root, o){
   const use = (fn, btn) => { const p = fn(text(), btn); if (full) { full = false; paint(); } return p; };
   root.querySelector('[data-act="share"]').onclick = e => use(shareText, e.currentTarget);
   root.querySelector('[data-act="copy"]').onclick = e => use(copyText, e.currentTarget);
+  root.querySelector('[data-act="line"]').onclick = e => use(async (t, b) => {
+    const r = await LineBot.send(t, b);
+    if (r) toast(`已傳到 LINE「${r.group}」${LineBot.quotaText(r.quota) ? "，" + LineBot.quotaText(r.quota) : ""}`);
+  }, e.currentTarget);
   paint();
 }
 
