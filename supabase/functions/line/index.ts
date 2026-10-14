@@ -169,7 +169,7 @@ async function retryKey(s: string) {
   const x = [...h].map(b => b.toString(16).padStart(2, "0")).join("");
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
 }
-async function tick(force = false) {
+async function tick(force = false, dry = false) {
   const cfg = await getCfg();
   const { ymd, wd, md } = twToday();
   if (!cfg.token || !cfg.group) return { sent: false, why: "no group" };
@@ -177,6 +177,11 @@ async function tick(force = false) {
   let daily: Record<string, Slot[]> = {};
   try { daily = JSON.parse(cfg.daily || "{}"); } catch { /* 壞掉當沒有 */ }
   const slots = daily[ymd] || [];
+  if (dry) {   // 只請 LINE 檢查卡片格式，不真的傳（沒訂單就用範例）
+    const sample: Slot[] = slots.length ? slots : [{ t: "10:00", m: "爸爸市場", w: 0, d: 0 }, { t: "14:30", m: "", w: 1, d: 1 }, { t: "", m: "媽媽市場", w: 0, d: 0 }];
+    const v = await line(cfg.token, "/message/validate/push", { method: "POST", body: JSON.stringify({ messages: [dailyCard(md, wd, sample)] }) });
+    return { dry: true, ok: v.ok, status: v.status, detail: v.ok ? undefined : v.j, today: ymd, n: slots.length };
+  }
   await setCfg({ tick_last: ymd });
   if (!slots.length) return { sent: false, why: "no orders" };   // 沒訂單的日子不傳，省免費則數
   const r = await line(cfg.token, "/message/push", { method: "POST", body: JSON.stringify({ to: cfg.group, messages: [dailyCard(md, wd, slots)] }),
@@ -199,7 +204,7 @@ Deno.serve(async (req) => {
   if (b.op === "tick") {   // 資料庫排程：key 只存在資料庫裡
     const k = (await getCfg()).cron_key;
     if (!k || typeof b.key !== "string" || b.key !== k) return json(req, { error: "no" }, 403);
-    try { return json(req, await tick(!!b.force)); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
+    try { return json(req, await tick(!!b.force, !!b.dry)); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
   }
   if (!isTag(b.tag)) return json(req, { error: "bad tag" }, 400);
   try {
