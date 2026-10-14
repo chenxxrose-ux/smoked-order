@@ -5,6 +5,8 @@
 // 驗證：網頁是公開的，所以用 tag —— 只有知道店家密碼的手機算得出來的 64 位雜湊；第一個設定的 tag 就是店家。
 //       LINE 打來的請求用 Channel secret 驗簽章。
 // Channel secret／access token 存在 line_cfg（只有這個程式讀得到）。
+// 3. 每天中午提醒：網頁把「哪天幾筆、幾點取、在哪、要不要秤」交過來（沒有客人名字電話），
+//    資料庫排程每天 12:00 打 op=tick（帶只存在資料庫裡的 cron_key），有訂單的日子才傳卡片到群組。
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ORIGINS = ["https://chenxxrose-ux.github.io"];
@@ -95,6 +97,99 @@ async function webhook(body: string, sig: string) {
   return new Response("ok");
 }
 
+/* ===== 每天中午的訂單提醒 ===== */
+const SITE = "https://chenxxrose-ux.github.io/smoked-order/?today";
+type Slot = { t: string; m: string; w: number; d: number };   // 取貨時間、地點、要秤、外送
+const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+function cleanDaily(x: unknown): Record<string, Slot[]> | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const out: Record<string, Slot[]> = {};
+  const ents = Object.entries(x as Record<string, unknown>);
+  if (ents.length > 62) return null;
+  for (const [d, arr] of ents) {
+    if (!isDate(d) || !Array.isArray(arr) || arr.length > 120) return null;
+    out[d] = arr.map((v: any) => ({
+      t: typeof v?.t === "string" && /^\d{1,2}:\d{2}$/.test(v.t) ? v.t : "",
+      m: typeof v?.m === "string" ? v.m.slice(0, 12) : "",
+      w: v?.w ? 1 : 0, d: v?.d ? 1 : 0,
+    }));
+  }
+  return out;
+}
+function twToday() {
+  const t = new Date(Date.now() + 8 * 3600 * 1000);
+  return { ymd: t.toISOString().slice(0, 10), wd: "日一二三四五六"[t.getUTCDay()], md: `${t.getUTCMonth() + 1}/${t.getUTCDate()}` };
+}
+const txt = (text: string, o: Record<string, unknown> = {}) => ({ type: "text", text, ...o });
+function dailyCard(md: string, wd: string, slots: Slot[]) {
+  const list = [...slots].sort((a, b) => (a.t || "99") < (b.t || "99") ? -1 : (a.t || "99") > (b.t || "99") ? 1 : 0);
+  const weigh = list.filter(s => s.w).length;
+  // 同一時間、同一地點的合成一列：10:00　五福市場　2 筆
+  const rows: { t: string; m: string; n: number; w: number }[] = [];
+  for (const s of list) {
+    const m = s.d ? "外送" : (s.m || "");
+    const last = rows[rows.length - 1];
+    if (last && last.t === s.t && last.m === m) { last.n++; last.w += s.w; } else rows.push({ t: s.t, m, n: 1, w: s.w });
+  }
+  const shown = rows.slice(0, 12);
+  const rowBox = (r: typeof rows[number]) => ({
+    type: "box", layout: "horizontal", spacing: "md", contents: [
+      txt(r.t || "未定", { size: "md", color: r.t ? "#1E1A17" : "#8A847D", weight: "bold", flex: 0, wrap: false }),
+      txt(r.m || "　", { size: "md", color: "#1E1A17", flex: 1, wrap: true }),
+      txt(`${r.n} 筆${r.w ? `・${r.w} 待秤` : ""}`, { size: "sm", color: "#8A847D", flex: 0, align: "end", gravity: "center" }),
+    ],
+  });
+  return {
+    type: "flex", altText: `今天（${md}）有 ${list.length} 筆訂單`,
+    contents: {
+      type: "bubble", size: "kilo",
+      header: { type: "box", layout: "vertical", backgroundColor: "#F7F0E1", paddingAll: "20px", spacing: "sm", contents: [
+        txt("訂單提醒", { size: "sm", color: "#9A6B17", weight: "bold" }),
+        { type: "box", layout: "baseline", spacing: "sm", contents: [
+          txt("今天", { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
+          txt(String(list.length), { size: "3xl", color: "#7B1F24", weight: "bold", flex: 0 }),
+          txt("筆訂單", { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
+        ] },
+        txt(`${md}（${wd}）${weigh ? `・${weigh} 筆待秤` : ""}`, { size: "sm", color: "#8A847D" }),
+      ] },
+      body: { type: "box", layout: "vertical", paddingAll: "20px", spacing: "md", contents: [
+        txt("取貨時間", { size: "xs", color: "#8A847D" }),
+        ...shown.map(rowBox),
+        ...(rows.length > shown.length ? [txt(`還有 ${rows.length - shown.length} 個時段，打開網頁看全部`, { size: "xs", color: "#8A847D", wrap: true })] : []),
+      ] },
+      footer: { type: "box", layout: "vertical", paddingAll: "16px", contents: [
+        { type: "button", style: "primary", color: "#7B1F24", height: "sm", action: { type: "uri", label: "看今天的訂單", uri: SITE } },
+      ] },
+    },
+  };
+}
+async function retryKey(s: string) {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))).slice(0, 16);
+  h[6] = (h[6] & 0x0f) | 0x40; h[8] = (h[8] & 0x3f) | 0x80;
+  const x = [...h].map(b => b.toString(16).padStart(2, "0")).join("");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+async function tick(force = false, dry = false) {
+  const cfg = await getCfg();
+  const { ymd, wd, md } = twToday();
+  if (!cfg.token || !cfg.group) return { sent: false, why: "no group" };
+  if (!force && cfg.tick_last === ymd) return { sent: false, why: "done" };
+  let daily: Record<string, Slot[]> = {};
+  try { daily = JSON.parse(cfg.daily || "{}"); } catch { /* 壞掉當沒有 */ }
+  const slots = daily[ymd] || [];
+  if (dry) {   // 只請 LINE 檢查卡片格式，不真的傳（沒訂單就用範例）
+    const sample: Slot[] = slots.length ? slots : [{ t: "10:00", m: "爸爸市場", w: 0, d: 0 }, { t: "14:30", m: "", w: 1, d: 1 }, { t: "", m: "媽媽市場", w: 0, d: 0 }];
+    const v = await line(cfg.token, "/message/validate/push", { method: "POST", body: JSON.stringify({ messages: [dailyCard(md, wd, sample)] }) });
+    return { dry: true, ok: v.ok, status: v.status, detail: v.ok ? undefined : v.j, today: ymd, n: slots.length };
+  }
+  await setCfg({ tick_last: ymd });
+  if (!slots.length) return { sent: false, why: "no orders" };   // 沒訂單的日子不傳，省免費則數
+  const r = await line(cfg.token, "/message/push", { method: "POST", body: JSON.stringify({ to: cfg.group, messages: [dailyCard(md, wd, slots)] }),
+    headers: { "X-Line-Retry-Key": await retryKey("tick/" + ymd + (force ? "/" + Date.now() : "")) } });
+  if (!r.ok && r.status !== 409) { console.error("tick", r.status, r.j); return { sent: false, why: "line " + r.status }; }
+  return { sent: true, n: slots.length };
+}
+
 /* ===== 網頁打來的 ===== */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -104,8 +199,13 @@ Deno.serve(async (req) => {
   const sig = req.headers.get("x-line-signature");
   if (sig) { try { return await webhook(raw, sig); } catch (e) { console.error(e); return new Response("ok"); } }
 
-  if (raw.length > 12000) return json(req, { error: "too big" }, 413);
+  if (raw.length > 60000) return json(req, { error: "too big" }, 413);
   let b: any; try { b = JSON.parse(raw); } catch { return json(req, { error: "bad json" }, 400); }
+  if (b.op === "tick") {   // 資料庫排程：key 只存在資料庫裡
+    const k = (await getCfg()).cron_key;
+    if (!k || typeof b.key !== "string" || b.key !== k) return json(req, { error: "no" }, 403);
+    try { return json(req, await tick(!!b.force, !!b.dry)); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
+  }
   if (!isTag(b.tag)) return json(req, { error: "bad tag" }, 400);
   try {
     const cfg = await getCfg();
@@ -136,6 +236,15 @@ Deno.serve(async (req) => {
       const code = String(n).padStart(6, "0");
       await setCfg({ pair: code, pair_exp: String(Date.now() + 15 * 60 * 1000) });
       return json(req, { code, basicId: cfg.basic_id || "" });
+    }
+
+    if (b.op === "daily") {
+      const d = cleanDaily(b.daily);
+      if (!d) return json(req, { error: "bad daily" }, 400);
+      const today = twToday().ymd;
+      for (const k of Object.keys(d)) if (k < today) delete d[k];
+      await setCfg({ daily: JSON.stringify(d) });
+      return json(req, { ok: true });
     }
 
     if (b.op === "unlink") { await delCfg(["group", "group_name", "pair", "pair_exp"]); return json(req, { ok: true }); }
