@@ -515,10 +515,10 @@ function cleanStock(r, clean){
       items: (Array.isArray(r.cf.items) ? r.cf.items : []).slice(0, 100).map(x => ({ k: String(x.k).slice(0, 40), mine: clean(x.mine, "w"), theirs: clean(x.theirs, "w") })),
       note: r.cf.note ? { mine: String(r.cf.note.mine || "").slice(0, 500), theirs: String(r.cf.note.theirs || "").slice(0, 500) } : null };
   }
-  const sends = (Array.isArray(r.sends) ? r.sends : []).slice(0, 30).map(x => ({ at: Number(x && x.at) || 0, via: x && x.via === "copy" ? "copy" : "share",
+  const sends = (Array.isArray(r.sends) ? r.sends : []).slice(0, 30).map(x => ({ at: Number(x && x.at) || 0, via: x && (x.via === "copy" || x.via === "line") ? x.via : "share",
     v: Object.fromEntries(Object.entries((x && x.v) || {}).map(([k, y]) => [String(k).slice(0, 40), clean(y, "w")]).filter(([, y]) => y > 0)),
     note: String((x && x.note) || "").slice(0, 500) })).filter(x => x.at);
-  return { v, note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0, via: r.via === "copy" ? "copy" : r.via ? "share" : "",
+  return { v, note: String(r.note || "").slice(0, 500), upd: Number(r.upd) || 0, shared: Number(r.shared) || 0, via: r.via === "copy" || r.via === "line" ? r.via : r.via ? "share" : "",
     ...(sends.length ? { sends } : {}), ...(cf ? { cf } : {}) };
 }
 /* 剩貨紀錄開始修改前：記下共同的上一版（衝突合併用），標記待上傳 */
@@ -656,5 +656,106 @@ const Backup = {
     }
     localStorage.setItem("stockData", JSON.stringify(all));
     return n;
+  },
+};
+
+/* ===== LINE 機器人：按一下把剩貨／訂單傳到 LINE 群組 =====
+   經過 Supabase 小程式（functions/line）用官方帳號發送；文字只轉送不存檔。
+   第一次用：貼上官方帳號的 Channel secret 和 Channel access token → 把官方帳號拉進群組 → 在群組傳網頁上的 6 位數字。
+   驗證用 tag：店家密碼算出來的雜湊，和手機通知同一套做法。 */
+const LINE_URL = "https://fodibhcjitnrgpvqttky.supabase.co/functions/v1/line";
+const LINE_ERR = {
+  "not owner": "這個 LINE 機器人已經被別的店家密碼設定過", quota: "這個月的免費訊息用完了（每月 200 則），下個月 1 號恢復，先改用「分享」",
+  "token rejected": "LINE 不接受這組 access token，請重新複製一次", "bad secret": "Channel secret 應該是 32 個英文和數字，請重新複製",
+  "bad token": "Channel access token 好像沒有複製完整，請重新複製", "group gone": "傳不進群組，可能官方帳號被移出群組了，請重新連接",
+};
+const LineBot = {
+  busy: false,
+  async tag(){
+    const room = (typeof Sync !== "undefined" && Sync.cfg().room) || ""; if (!room) return "";
+    return sha256hex(room + "/line/v1");
+  },
+  async call(body){
+    const tag = await this.tag();
+    if (!tag) throw new Error("no room");
+    let r;
+    try { r = await fetch(LINE_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ ...body, tag }) }); }
+    catch (e) { throw new Error("offline"); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "line " + r.status);
+    return j;
+  },
+  msg(e){ const c = e && e.message; return LINE_ERR[c] || (c === "offline" ? "連不上網路，請確認網路後再試" : c === "no room" ? "請先輸入店家密碼開啟同步，才能用 LINE 機器人" : "LINE 傳送失敗，請再試一次"); },
+  quotaText(q){ return q && q.left != null ? `本月免費訊息還剩 ${q.left} 則` : ""; },
+
+  /* 第一次：貼上 Channel secret、access token */
+  setupDialog(){
+    return new Promise(resolve => {
+      const field = (id, ph) => `<input class="pw-in" id="${id}" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${ph}">`;
+      $("dlgBox").innerHTML = `<h4>連接 LINE 官方帳號</h4>
+        <p>到 LINE Developers 的「Messaging API」頁面，把兩組文字複製貼上。只要設定一次，所有店家手機都能用。</p>
+        ${field("lnSecret", "Channel secret（32 碼）")}${field("lnToken", "Channel access token（很長一串）")}
+        <div class="dlg-err" id="lnErr"></div>
+        <div class="dlg-btns"><button type="button" class="btn ghost" data-no>取消</button><button type="button" class="btn" data-yes>連接</button></div>`;
+      $("dlg").classList.add("show");
+      const err = $("lnErr"), yes = $("dlgBox").querySelector("[data-yes]");
+      $("dlgBox").querySelector("[data-no]").onclick = () => { closeDlg(); resolve(false); };
+      yes.onclick = async () => {
+        const secret = $("lnSecret").value.trim(), token = $("lnToken").value.trim();
+        if (!secret || !token) { err.textContent = "兩格都要貼上"; return; }
+        yes.disabled = true; err.textContent = "連接中…";
+        try { await this.call({ op: "setup", secret, token }); closeDlg(); resolve(true); }
+        catch (e) { yes.disabled = false; err.textContent = this.msg(e); }
+      };
+    });
+  },
+
+  /* 第二次：把官方帳號拉進群組，在群組傳 6 位數字 */
+  async pairDialog(){
+    let p;
+    try { p = await this.call({ op: "pair" }); } catch (e) { toast(this.msg(e), true); return false; }
+    return new Promise(resolve => {
+      const id = p.basicId ? `（${escapeHtml(p.basicId)}）` : "";
+      $("dlgBox").innerHTML = `<h4>連接 LINE 群組</h4>
+        <p>1. 在 LINE 群組右上角 ≡ →「邀請」，把官方帳號${id}加進群組<br>2. 在群組裡傳下面這 6 個數字：</p>
+        <div class="ln-code">${p.code.slice(0, 3)} ${p.code.slice(3)}</div>
+        <div class="dlg-err" id="lnErr" style="color:var(--sub)">等待群組傳數字…（15 分鐘內有效）</div>
+        <div class="dlg-btns"><button type="button" class="btn ghost" data-copy>${ICON.copy}複製數字</button><button type="button" class="btn ghost" data-no>取消</button></div>`;
+      $("dlg").classList.add("show");
+      let done = false;
+      const finish = ok => { if (done) return; done = true; clearInterval(timer); closeDlg(); resolve(ok); };
+      $("dlgBox").querySelector("[data-no]").onclick = () => finish(false);
+      $("dlgBox").querySelector("[data-copy]").onclick = e => copyText(p.code, e.currentTarget);
+      const started = Date.now();
+      const timer = setInterval(async () => {
+        if (done) return;
+        if (!$("dlgBox").querySelector(".ln-code")) { finish(false); return; }
+        if (Date.now() - started > 15 * 60 * 1000) { finish(false); toast("數字過期了，請再按一次", true); return; }
+        try { const s = await this.call({ op: "status" }); if (s.group) { finish(true); toast(`已連上「${s.group}」`); } } catch (e) {}
+      }, 3000);
+    });
+  },
+
+  /* 設定好就傳；還沒設定就先帶著設定。回傳 { group, quota } 或 null */
+  async send(text, btn){
+    if (this.busy) return null;
+    if (!navigator.onLine) { toast("沒有網路，請連上網路後再傳", true); return null; }
+    this.busy = true;
+    const old = btn ? btn.innerHTML : "";
+    if (btn) { btn.disabled = true; btn.textContent = "傳送中…"; }
+    try {
+      let s = await this.call({ op: "status" });
+      if (!s.ready) { if (btn) btn.innerHTML = old; if (!(await this.setupDialog())) return null; s = await this.call({ op: "status" }); }
+      if (!s.group) { if (btn) btn.innerHTML = old; if (!(await this.pairDialog())) return null; s = await this.call({ op: "status" }); }
+      if (btn) btn.textContent = "傳送中…";
+      const r = await this.call({ op: "send", text, id: crypto.randomUUID ? crypto.randomUUID() : undefined });
+      return { group: s.group, quota: r.quota };
+    } catch (e) {
+      toast(this.msg(e), true);
+      return null;
+    } finally {
+      this.busy = false;
+      if (btn) { btn.disabled = false; btn.innerHTML = old; }
+    }
   },
 };

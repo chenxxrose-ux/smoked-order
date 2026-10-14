@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="剩貨">
 <meta name="format-detection" content="telephone=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://fodibhcjitnrgpvqttky.supabase.co; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>剩貨紀錄</title>
 <style>
@@ -117,8 +117,8 @@
   .bar{position:fixed;left:0;right:0;bottom:0;z-index:6;background:rgba(255,255,255,.96);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
     border-top:1px solid var(--hair);padding:10px var(--gut) calc(10px + env(safe-area-inset-bottom))}
   .bar-in{max-width:600px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .sum{display:flex;flex-direction:column;line-height:1.2;min-width:0}
-  .sum-l{font-size:13px;color:var(--sub)}
+  .sum{display:flex;flex-direction:column;line-height:1.2;min-width:0;flex:1}
+  .sum-l{font-size:13px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .sum b{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
   body.typing .bar{display:none}
 
@@ -130,7 +130,8 @@
   .btn.ghost:active{background:var(--fill-press)}
   .btn.small{min-height:44px;padding:0 12px;font-size:15px;border-radius:10px}
   .btn.share{background:var(--soy);color:#fff}
-  .bar .btn{min-width:132px}
+  .bar-btns{display:flex;gap:8px;flex:none}
+  .bar .btn{min-width:0;padding:0 16px}
 
   /* 底部彈窗 */
   .modal{position:fixed;inset:0;background:rgba(30,26,23,.4);display:none;align-items:flex-end;justify-content:center;z-index:10}
@@ -215,6 +216,9 @@
   .dlg-btns .btn{flex:1;min-width:0;padding:0 10px}
   .pin-in{width:100%;height:48px;border:none;border-radius:10px;background:var(--fill);font-size:20px;letter-spacing:.3em;text-align:center;margin-bottom:10px;outline:none}
   .pin-in:focus{background:var(--soy-tint)}
+  .ln-code{font-size:34px;font-weight:700;letter-spacing:.12em;text-align:center;font-variant-numeric:tabular-nums;padding:10px 0 4px;color:var(--ink)}
+  .btn.line{background:#06C755;color:#fff}
+  .btn.line:active{background:#05A847}
   .dlg-err{color:var(--red);font-size:13px;min-height:18px;margin:-4px 0 6px}
   .btn.danger{background:var(--red);color:#fff}
   .btn.danger:active{background:#8F1E18}
@@ -388,7 +392,7 @@
 
 <div class="bar"><div class="bar-in">
   <div class="sum"><span class="sum-l"><span class="mk-tag" id="mkTag">未選市場</span>・<span id="saveState">已自動儲存</span></span><b><span id="cnt">0</span> 項有剩<small id="bring"></small></b></div>
-  <button type="button" class="btn" id="shareBtn">分享剩貨</button>
+  <div class="bar-btns"><button type="button" class="btn ghost" id="shareBtn">分享</button><button type="button" class="btn line" id="lineBtn">傳到群組</button></div>
 </div></div>
 
 <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
@@ -396,7 +400,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=4"></script>
-<script src="core.js?v=6"></script>
+<script src="core.js?v=7"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -675,7 +679,14 @@ $("shareBtn").onclick = async () => {
     if (e.name === "AbortError") toast("已取消，沒有分享（紀錄還在）");
     else if (await copyText(text, null, true)) afterShare("copy", "分享沒有成功，已改成複製，請到 LINE 貼上");
     else toast("分享沒有成功，紀錄還在，請再試一次", true);
-  } finally { sharing = false; btn.disabled = false; btn.textContent = "分享剩貨"; }
+  } finally { sharing = false; btn.disabled = false; btn.textContent = "分享"; }
+};
+$("lineBtn").onclick = async () => {
+  if (sharing) return;
+  if (!mk) { await askMarket(); return; }
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  const r = await LineBot.send(stockText(), $("lineBtn"));
+  if (r) afterShare("line", `已傳到 LINE「${r.group}」${LineBot.quotaText(r.quota) ? "（" + LineBot.quotaText(r.quota) + "）" : ""}`);
 };
 /* 分享完：記下分享時間（存到後台），清空選擇，準備記下一筆 */
 function afterShare(via, msg){
@@ -727,7 +738,7 @@ async function showHistory(refresh){
     (list.length ? `<div class="rows">${list.map(x => `<div class="row hist-row"><button type="button" class="hist" data-d="${x.d}" data-m="${x.m}">
         <span><b>${fmtDate(x.d)}</b>　${MKT[x.m]}<br><small>剩 ${cnt(x.r, false)} 項${cnt(x.r, true) ? `・要帶 ${cnt(x.r, true)} 項` : ""}</small></span>
         <span class="${x.r.shared ? "ok" : "todo"}">${Object.keys(x.r.v || {}).length || x.r.note ? (x.r.shared ? "有新內容未分享" : "未分享")
-          : (x.r.via === "copy" ? "已複製 " : "已分享 ") + hm(x.r.shared)}${(x.r.sends || []).length > 1 ? `（${x.r.sends.length} 次）` : ""}</span></button>
+          : (x.r.via === "copy" ? "已複製 " : x.r.via === "line" ? "已傳 LINE " : "已分享 ") + hm(x.r.shared)}${(x.r.sends || []).length > 1 ? `（${x.r.sends.length} 次）` : ""}</span></button>
         <button type="button" class="link-btn danger" data-del="${x.id}" aria-label="刪除 ${fmtDate(x.d)} ${MKT[x.m]}">刪除</button></div>`).join("")}</div>`
       : `<p class="note">還沒有紀錄。</p>`) +
     (trash.length ? `<p class="prep-cat">最近刪除（${TRASH_DAYS} 天內可以復原）</p><div class="rows">${trash.map(x => `<div class="row hist-row">
@@ -759,7 +770,7 @@ function showSent(d, m){
   sheet.dataset.sub = "sent";
   sheet.innerHTML = `<h3>${fmtDate(d)} ${MKT[m]}</h3>
     ${Object.keys(r.v || {}).length || r.note ? `<div class="state warn">這天分享之後又填了新的內容，還沒分享。</div>` : ""}
-    ${sends.map((x, i) => `<p class="prep-cat">${x.via === "copy" ? "複製" : "分享"}於 ${when(x.at)}</p>
+    ${sends.map((x, i) => `<p class="prep-cat">${x.via === "copy" ? "複製" : x.via === "line" ? "傳到 LINE 群組" : "分享"}於 ${when(x.at)}</p>
       <pre class="sent-pre" data-pv="${i}"></pre>
       <div class="sync-btns"><button type="button" class="btn ghost" data-copy="${i}">${ICON.copy}再複製一次</button></div>`).join("")}
     <div class="actions"><button type="button" class="btn ghost" id="sentBack">回紀錄</button><button type="button" class="btn" id="sentOpen">打開這天繼續填</button></div>`;
