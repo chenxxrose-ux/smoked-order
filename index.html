@@ -440,7 +440,7 @@
   <h2 class="sec">客人</h2>
   <section class="card">
     <div class="line"><label class="lbl" for="surname">姓氏</label>
-      <input type="text" id="surname" placeholder="陳" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
+      <input type="text" id="surname" placeholder="可不填（用電話後三碼）" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
       <div class="seg small" id="titleSeg" role="radiogroup" aria-label="稱謂">
         <button type="button" data-t="小姐" role="radio" aria-checked="false">小姐</button>
         <button type="button" data-t="先生" role="radio" aria-checked="false">先生</button></div></div>
@@ -685,20 +685,30 @@ function maskPhone(p){
 }
 
 /* 產生可複製的純文字訂單 */
-/* opts.fullPhone=true 才會出現完整電話；預設遮蔽 */
+/* 電話一律完整顯示（店裡的人要能直接打）；地址要 opts.fullPhone=true 才完整，預設遮蔽 */
+const lineHead = t => `━━ ${t} ━━━━━━`;
 function buildText(o, opts = {}){
-  let t = (o.st ? `【${stLabel(o)}】\n` : "") + `${o.name} ${opts.fullPhone ? String(o.phone || "") : maskPhone(o.phone)}\n`;
-  if (o.odate) t += `訂購 ${fmtDate(o.odate)}\n`;
-  if (o.date) t += `取貨 ${fmtDate(o.date)}${o.ptime ? " " + o.ptime : ""}${o.market ? "・" + o.market : ""}\n`;
-  if (o.addr) t += `地址：${opts.fullPhone ? o.addr : maskAddr(o.addr)}\n`;
-  if (o.prep) t += prepText(o.prep) + "\n";
-  if (o.memo) t += `備註：${o.memo}\n`;
-  t += o.items.map(l => `${l.sub !== null && l.weigh ? (l.short || l.item).replace(/ 約\$\d+/, "") : (l.short || l.item)}${l.sub === null ? (l.weigh ? "（待秤）" : "（未定價）") : " $" + l.sub}`).join("\n");
+  // LINE 裡看的排版：一段一段分開，標題寫在分隔線裡，品項內縮（和剩貨分享同一種排法，不用 emoji）
+  const L = [];
+  if (o.st) L.push(`【${stLabel(o)}】`);
+  L.push(`${o.name}　${String(o.phone || "")}`);
+  L.push("━━━━━━━━━━━━");
+  if (o.date) L.push(`取貨　${fmtDate(o.date)}${o.ptime ? " " + o.ptime : ""}`);
+  if (o.market) L.push(`地點　${o.market}`);
+  if (o.addr) L.push(`地址　${opts.fullPhone ? o.addr : maskAddr(o.addr)}`);
+  if (o.odate) L.push(`訂購　${fmtDate(o.odate)}`);
+  L.push("", lineHead("品項"));
+  o.items.forEach(l => {
+    const name = l.sub !== null && l.weigh ? (l.short || l.item).replace(/ 約\$\d+/, "") : (l.short || l.item);
+    L.push(`　${name}　${l.sub === null ? (l.weigh ? "（待秤）" : "（未定價）") : "$" + l.sub}`);
+  });
+  if (o.prep) L.push("", lineHead("處理"), `　${prepText(o.prep)}`);
+  if (o.memo) L.push("", lineHead("備註"), `　${o.memo}`);
   o.total = calcTotal(o.items);
-  t += `\n合計 $${o.total}${totalNote(o.items)}`;
-  if (o.pay) t += `\n${payText(o)}`;
-  if (o.st === "cancel" && o.refund) t += `\n已收 $${paidOf(o)}・${REFUND[o.refund]}`;
-  return t;
+  L.push("", "━━━━━━━━━━━━", `合計　$${o.total}${totalNote(o.items)}`);
+  if (o.pay) L.push(`付款　${payText(o)}`);
+  if (o.st === "cancel" && o.refund) L.push(`退款　已收 $${paidOf(o)}・${REFUND[o.refund]}`);
+  return L.join("\n");
 }
 /* 金額一律是 0 以上的整數（負數、亂打都當 0） */
 const money = v => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(n, 9999999) : 0; };
@@ -751,15 +761,16 @@ function bindShare(root, o){
   let full = false;
   const pre = root.querySelector("[data-preview]"), st = root.querySelector("[data-phstate]"), tg = root.querySelector("[data-phtoggle]");
   const text = () => buildText(o, { fullPhone: full });
+  st.parentNode.hidden = !o.addr;   // 電話已經是完整的；只有外送地址可以選遮蔽或完整
   const paint = () => {
     pre.textContent = text();
-    st.textContent = full ? `分享內容含完整電話${o.addr ? "與地址" : ""}（只用這一次）` : `電話${o.addr ? "、地址" : ""}已遮蔽`;
+    st.textContent = full ? "分享內容含完整地址（只用這一次）" : "地址已遮蔽";
     st.className = full ? "warn" : "";
-    tg.textContent = full ? "改回遮蔽" : `改成完整電話${o.addr ? "與地址" : ""}`;
+    tg.textContent = full ? "改回遮蔽" : "改成完整地址";
   };
   tg.onclick = async () => {
-    if (!full && !(await askConfirm({ title: `分享完整電話${o.addr ? "與地址" : ""}？`, ok: "包含完整個資", danger: true,
-      msg: `分享或複製出去的文字會有客人的完整手機號碼${o.addr ? "和地址" : ""}。只有確定對方需要時才這樣做（例如給外送的人）。` }))) return;
+    if (!full && !(await askConfirm({ title: "分享完整地址？", ok: "包含完整地址", danger: true,
+      msg: "分享或複製出去的文字會有客人的完整地址。只有確定對方需要時才這樣做（例如給外送的人）。" }))) return;
     full = !full; paint();
   };
   // 完整電話只用一次：分享或複製之後自動改回遮蔽
@@ -1601,8 +1612,9 @@ function validate(){
   const phone = $id("phone").value.replace(/\D/g, "");
   const date = $id("pdate").value;
   const errs = [];
-  const nameMsg = !surname && !title ? "請填寫姓氏，並選擇小姐或先生" : !surname ? "請填寫姓氏" : !title ? "請選擇小姐或先生" : "";
-  showErr("nameErr", !!nameMsg, nameMsg); if (nameMsg) errs.push(!surname ? $id("surname") : $id("titleSeg"));
+  // 沒填姓氏也可以：用電話後三碼記（例如「678小姐」）；有填姓氏就要選稱謂
+  const nameMsg = surname && !title ? "請選擇小姐或先生" : "";
+  showErr("nameErr", !!nameMsg, nameMsg); if (nameMsg) errs.push($id("titleSeg"));
   const phoneMsg = !phone ? "請填寫電話" : /^09\d{8}$/.test(phone) ? "" : "手機號碼要 09 開頭、共 10 碼";
   showErr("phoneErr", !!phoneMsg, phoneMsg); if (phoneMsg) errs.push($id("phone"));
   const addr = market === "外送" ? $id("addr").value.trim() : "";
@@ -1619,7 +1631,7 @@ function validate(){
     if (el.tagName === "INPUT") setTimeout(() => el.focus({ preventScroll: true }), 350);
     return null;
   }
-  return { surname, title, name: surname + title, phone, date, ptime: $id("ptime").value, addr };
+  return { surname, title, name: (surname || phone.slice(-3)) + title, phone, date, ptime: $id("ptime").value, addr };
 }
 /* 改好了就把錯誤收起來 */
 $id("surname").addEventListener("input", () => { if (cleanSurname($id("surname").value) && title) showErr("nameErr", false); });
@@ -1799,7 +1811,7 @@ function fillForm(o){
   market = o.market || ""; document.querySelectorAll("#marketSeg button").forEach(x => x.classList.toggle("on", x.dataset.m === market)); paintMarket();
   $id("surname").value = o.surname || ""; title = o.title || "";
   document.querySelectorAll("#titleSeg button").forEach(x => { const on = x.dataset.t === title; x.classList.toggle("on", on); x.setAttribute("aria-checked", on); });
-  if (!o.surname && o.name) $id("surname").value = cleanSurname(o.name).slice(0, 1);
+  if (!o.surname && o.name && !/^\d/.test(o.name)) $id("surname").value = cleanSurname(o.name).slice(0, 1);
   $id("phone").value = o.phone || "";
   setDate(o.date || ""); $id("addr").value = o.addr || ""; paintAddr(); fillTimes(o.ptime || "");
   pay = o.pay || "none";
@@ -1915,8 +1927,8 @@ function showOrders(keepScroll){
         <button type="button" class="btn ghost small" data-edit="${i}">${ICON.edit}修改</button></div>
       <div class="order-tools">
         <button type="button" class="link-btn" data-copy="${i}">複製</button>
-        <button type="button" class="link-btn" data-reveal="${i}">顯示完整電話</button>
-        <button type="button" class="link-btn" data-fullshare="${i}">${o.addr ? "含電話地址分享" : "含電話分享"}</button>
+        ${o.addr ? `<button type="button" class="link-btn" data-reveal="${i}">顯示完整地址</button>
+        <button type="button" class="link-btn" data-fullshare="${i}">含地址分享</button>` : ""}
         ${Sync.on() ? `<button type="button" class="link-btn" data-revs="${i}">歷史版本</button>` : ""}
         ${o.addr ? `<a class="link-btn" data-nav="${i}" target="_blank" rel="noopener noreferrer">導航</a>` : ""}
         ${o.st !== "cancel" && o.pay !== "full" ? `<button type="button" class="link-btn" data-paid="${i}">標成已付清</button>` : ""}
@@ -1961,16 +1973,16 @@ function showOrders(keepScroll){
     b.onclick = async () => {
       const i = b.dataset.reveal, pre = sheet.querySelector(`[data-pv="${i}"]`), showing = b.dataset.on === "1";
       clearTimeout(timer);
-      if (showing) { pre.textContent = buildText(all[i]); b.textContent = "顯示完整電話"; b.dataset.on = ""; return; }
+      if (showing) { pre.textContent = buildText(all[i]); b.textContent = "顯示完整地址"; b.dataset.on = ""; return; }
       if (!(await phoneGate("reveal")) || !pre.isConnected) return;
-      pre.textContent = buildText(all[i], { fullPhone: true }); b.textContent = "隱藏電話"; b.dataset.on = "1";
-      timer = setTimeout(() => { if (pre.isConnected) { pre.textContent = buildText(all[i]); b.textContent = "顯示完整電話"; b.dataset.on = ""; } }, 20000);
+      pre.textContent = buildText(all[i], { fullPhone: true }); b.textContent = "隱藏地址"; b.dataset.on = "1";
+      timer = setTimeout(() => { if (pre.isConnected) { pre.textContent = buildText(all[i]); b.textContent = "顯示完整地址"; b.dataset.on = ""; } }, 20000);
     };
   });
   sheet.querySelectorAll("[data-fullshare]").forEach(b => b.onclick = async () => {
     const o = all[b.dataset.fullshare];
-    if (await askConfirm({ title: `分享完整電話${o.addr ? "與地址" : ""}？`, ok: "包含完整個資", danger: true,
-      msg: `分享出去的文字會有 ${o.name} 的完整手機號碼${o.addr ? "和地址" : ""}。只有確定對方需要時才這樣做。` })) shareText(buildText(o, { fullPhone: true }), b);
+    if (await askConfirm({ title: "分享完整地址？", ok: "包含完整地址", danger: true,
+      msg: `分享出去的文字會有 ${o.name} 的完整地址。只有確定對方需要時才這樣做。` })) shareText(buildText(o, { fullPhone: true }), b);
   });
   sheet.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     const o = all[b.dataset.del];
@@ -2137,7 +2149,7 @@ function showPrep(){
    金鑰記在這支手機，不用再輸入密碼；改成每次都要按確認，20 秒後自動隱藏。分享含電話另有確認，而且只用一次。 */
 async function phoneGate(kind){
   if (kind !== "reveal") return true;
-  return askConfirm({ title: "顯示完整電話？", ok: "顯示", msg: "客人的完整手機號碼會顯示 20 秒，之後自動遮蔽。請確認旁邊沒有不相關的人。" });
+  return askConfirm({ title: "顯示完整地址？", ok: "顯示", msg: "客人的完整地址會顯示 20 秒，之後自動遮蔽。請確認旁邊沒有不相關的人。" });
 }
 
 /* ===== 衝突：比較兩個版本，選一個 ===== */
