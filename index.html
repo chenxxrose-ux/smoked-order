@@ -453,8 +453,8 @@
         <button type="button" data-t="先生" role="radio" aria-checked="false">先生</button></div></div>
     <div class="err" id="nameErr">請填寫姓氏，並選擇小姐或先生</div>
     <div class="line"><label class="lbl" for="phone">電話</label>
-      <input type="text" id="phone" placeholder="0912345678" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done"></div>
-    <div class="err" id="phoneErr">請填寫手機號碼，09 開頭共 10 碼</div>
+      <input type="text" id="phone" placeholder="可不填" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done"></div>
+    <div class="err" id="phoneErr">電話號碼好像少了幾碼</div>
     </div>
     <div class="line memo"><label class="lbl" for="memo">備註</label><textarea id="memo" rows="1" placeholder="切法、其他交代"></textarea></div>
   </section>
@@ -699,7 +699,7 @@ function buildText(o, opts = {}){
   // LINE 裡看的排版：一段一段分開，標題寫在分隔線裡，品項內縮（和剩貨分享同一種排法，不用 emoji）
   const L = [];
   if (o.st) L.push(`【${stLabel(o)}】`);
-  L.push(o.phone ? `${o.name}　${o.phone}` : o.name);
+  L.push(o.phone ? `${o.name}　${o.phone}` : o.walk ? o.name : `${o.name}　電話未留`);
   L.push("━━━━━━━━━━━━");
   if (o.date) L.push(`取貨　${fmtDate(o.date)}${o.ptime ? " " + o.ptime : ""}`);
   if (o.market) L.push(`地點　${o.market}`);
@@ -1632,7 +1632,8 @@ function validate(){
   // 沒填姓氏也可以：用電話後三碼記（例如「678小姐」）；有填姓氏就要選稱謂
   const nameMsg = !walk && surname && !title ? "請選擇小姐或先生" : "";
   showErr("nameErr", !!nameMsg, nameMsg); if (nameMsg) errs.push($id("titleSeg"));
-  const phoneMsg = walk ? "" : !phone ? "請填寫電話" : /^09\d{8}$/.test(phone) ? "" : "手機號碼要 09 開頭、共 10 碼";
+  // 電話可不填（訂單顯示「未留」）；有填才檢查長度，市話也可以
+  const phoneMsg = walk || !phone || (phone.length >= 8 && phone.length <= 12) ? "" : "電話號碼好像少了幾碼";
   showErr("phoneErr", !!phoneMsg, phoneMsg); if (phoneMsg) errs.push($id("phone"));
   const addr = market === "外送" ? $id("addr").value.trim() : "";
   showErr("addrErr", market === "外送" && !addr); if (market === "外送" && !addr) errs.unshift($id("addr"));
@@ -1649,12 +1650,12 @@ function validate(){
     return null;
   }
   if (walk) return { walk: true, surname: "", title: "", name: "現場客", phone: "", date, ptime: $id("ptime").value, addr };
-  return { walk: false, surname, title, name: (surname || phone.slice(-3)) + title, phone, date, ptime: $id("ptime").value, addr };
+  return { walk: false, surname, title, name: surname || phone ? (surname || phone.slice(-3)) + title : "客人" + (title ? `（${title}）` : ""), phone, date, ptime: $id("ptime").value, addr };
 }
 /* 改好了就把錯誤收起來 */
 $id("surname").addEventListener("input", () => { if (cleanSurname($id("surname").value) && title) showErr("nameErr", false); });
 $id("titleSeg").addEventListener("click", () => { if (cleanSurname($id("surname").value)) showErr("nameErr", false); });
-$id("phone").addEventListener("input", () => { if (/^09\d{8}$/.test($id("phone").value.replace(/\D/g, ""))) showErr("phoneErr", false); });
+$id("phone").addEventListener("input", () => { { const n = $id("phone").value.replace(/\D/g, "").length; if (!n || n >= 8) showErr("phoneErr", false); } });
 /* 鍵盤的「下一步／完成」 */
 $id("surname").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); title ? $id("phone").focus() : e.target.blur(); } });
 document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches && e.target.matches('#phone, #deposit, .pin input')) { e.preventDefault(); e.target.blur(); } });
@@ -1698,7 +1699,7 @@ document.getElementById("submitBtn").onclick = async () => {
   sheet.innerHTML = `<h3>${editing ? "預覽修改" : "預覽訂單"}</h3>
     <p class="note">確認沒問題再按「儲存訂單」，按了才會存檔。</p>
     <div class="rows"><div class="row"><span>客人</span><span>${escapeHtml(who.name)}</span></div>
-    ${who.phone ? `<div class="row"><span>電話</span><span>${escapeHtml(who.phone)}</span></div>` : ""}
+    ${who.walk ? "" : `<div class="row"><span>電話</span><span>${who.phone ? escapeHtml(who.phone) : "未留"}</span></div>`}
     <div class="row"><span>訂購日</span><span>${fmtDate(ymd(new Date()))}</span></div>
     <div class="row"><span>取貨</span><span>${fmtDate(who.date)} ${escapeHtml(who.ptime)}${market ? "・" + market : ""}</span></div>
     ${who.addr ? `<div class="row"><span>地址</span><span>${escapeHtml(who.addr)}</span></div>` : ""}
