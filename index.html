@@ -354,6 +354,10 @@
   .unpriced{color:#B3261E;font-weight:600}
   /* 訂單狀態 */
   .st-seg{margin:0 0 12px;width:100%}
+  .today-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 0 12px}
+  .today-sum div{background:var(--card);border-radius:12px;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .today-sum b{font-size:20px;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .today-sum span{font-size:12px;color:var(--sub)}
   .st-seg button{font-size:14px;padding:0 2px}
   .order .st-done{width:100%;margin-bottom:8px;background:#E3F1E7;color:#2E6B44;font-weight:600}
   .order .st-done:active{background:#D2E8D9}
@@ -1899,8 +1903,20 @@ async function openOrders(){
 }
 
 /* ===== 訂單狀態：待處理 → 已取貨／已送達，或取消 ===== */
-const ST_FILTERS = [["open", "待處理"], ["done", "已完成"], ["cancel", "已取消"], ["all", "全部"]];
+const ST_FILTERS = [["today", "今天"], ["open", "待處理"], ["done", "已完成"], ["cancel", "已取消"], ["all", "全部"]];
 let listFilter = "open";
+// 「今天」：今天取貨、沒取消的，照取貨時間排（LINE 中午提醒的按鈕會直接打開這裡）
+const inFilter = (o, k) => k === "all" || (k === "today" ? o.date === ymd(new Date()) && o.st !== "cancel" : stGroup(o) === k);
+const listOrder = (all, k) => { const ix = [...all.keys()]; if (k !== "today") return ix;
+  const key = o => (o.st ? "1" : "0") + (o.ptime || "99");   // 還沒取的在前，照時間；取完的沉到最後
+  return ix.sort((a, b) => key(all[a]) < key(all[b]) ? -1 : key(all[a]) > key(all[b]) ? 1 : 0); };
+function todaySummary(all){
+  const t = all.filter(o => inFilter(o, "today")); if (!t.length) return "";
+  const left = t.filter(o => !o.st), pend = left.filter(o => hasPending(o.items)).length;
+  const next = left.map(o => o.ptime).filter(Boolean).sort()[0];
+  return `<div class="today-sum"><div><b>${left.length}</b><span>待取貨</span></div><div><b>${t.length - left.length}</b><span>已完成</span></div>
+    <div><b>${pend}</b><span>待秤重</span></div><div><b>${next || "—"}</b><span>最早取貨</span></div></div>`;
+}
 const stGroup = o => o.st === "cancel" ? "cancel" : o.st ? "done" : "open";
 const stLabel = o => ({ picked: "已取貨", delivered: "已送達", cancel: "已取消" })[o.st] || "";
 const REFUND = { todo: "待退款", done: "已退款", none: "不退款" };
@@ -1954,9 +1970,10 @@ function showOrders(keepScroll){
     ${Sync.on() ? Push.box() : ""}
     <p class="privacy">${Sync.on() ? "訂單加密後才同步到雲端，雲端只有亂碼。" : "訂單加密存在這支手機，不會上傳。"}電話預設遮蔽。刪除的訂單 ${TRASH_DAYS} 天內可以復原。</p>
     ${all.length ? `<div class="seg st-seg" id="stSeg">${ST_FILTERS.map(([k, lab]) =>
-      `<button type="button" data-sf="${k}" class="${k === listFilter ? "on" : ""}">${lab} ${all.filter(o => stGroup(o) === k || k === "all").length}</button>`).join("")}</div>` : ""}` +
-    (all.length ? (all.some(o => listFilter === "all" || stGroup(o) === listFilter) ? "" : `<p class="note">這裡沒有訂單。</p>`) +
-    all.map((o, i) => (listFilter !== "all" && stGroup(o) !== listFilter) ? "" : `<div class="order${hasPending(o.items) && !o.st ? " pending" : ""}${o.st ? " st-" + o.st : ""}">
+      `<button type="button" data-sf="${k}" class="${k === listFilter ? "on" : ""}">${lab} ${all.filter(o => inFilter(o, k)).length}</button>`).join("")}</div>` : ""}` +
+    (listFilter === "today" ? todaySummary(all) : "") +
+    (all.length ? (all.some(o => inFilter(o, listFilter)) ? "" : `<p class="note">${listFilter === "today" ? "今天沒有要取貨的訂單。" : "這裡沒有訂單。"}</p>`) +
+    listOrder(all, listFilter).map(i => (o => !inFilter(o, listFilter) ? "" : `<div class="order${hasPending(o.items) && !o.st ? " pending" : ""}${o.st ? " st-" + o.st : ""}">
       ${o.st ? `<div class="st-tag">${o.st === "cancel" ? "✕" : "✓"} ${stLabel(o)}${o.stAt ? `<small>${when(o.stAt)}</small>` : ""}
         <button type="button" class="link-btn" data-st="${i}" data-v="">改回待處理</button></div>` : ""}
       ${o.st === "cancel" && o.refund ? `<div class="refund-box">已收 $${paidOf(o)}・<b class="rf-${o.refund}">${REFUND[o.refund]}</b>
@@ -1979,7 +1996,7 @@ function showOrders(keepScroll){
         ${o.addr ? `<a class="link-btn" data-nav="${i}" target="_blank" rel="noopener noreferrer">導航</a>` : ""}
         ${o.st !== "cancel" && o.pay !== "full" ? `<button type="button" class="link-btn" data-paid="${i}">標成已付清</button>` : ""}
         ${o.st ? "" : `<button type="button" class="link-btn" data-st="${i}" data-v="cancel">取消訂單</button>`}
-        <button type="button" class="del-btn" data-del="${i}">刪除</button></div></div>`).join("")
+        <button type="button" class="del-btn" data-del="${i}">刪除</button></div></div>`)(all[i])).join("")
       : `<p class="note">還沒有訂單。送出第一筆後，會出現在這裡。</p>`) +
     (all.length > 1 ? `<div class="actions"><button type="button" class="btn ghost" id="copyAll">${ICON.copy}複製全部訂單（電話遮蔽）</button></div>` : "") +
     `<div class="actions"><button type="button" class="btn ghost" id="closeList">關閉</button></div>` +
@@ -2737,6 +2754,12 @@ document.addEventListener("focusout", () => setTimeout(() => {
 }, 100));
 
 render();
+// LINE 中午提醒的按鈕：?today 直接打開「今天」的訂單
+if (/[?&]today\b/.test(location.search)) {
+  listFilter = "today";
+  history.replaceState(null, "", location.pathname);
+  setTimeout(openOrders, 300);
+}
 </script>
 </body>
 </html>

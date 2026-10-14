@@ -98,7 +98,7 @@ async function webhook(body: string, sig: string) {
 }
 
 /* ===== 每天中午的訂單提醒 ===== */
-const SITE = "https://chenxxrose-ux.github.io/smoked-order/";
+const SITE = "https://chenxxrose-ux.github.io/smoked-order/?today";
 type Slot = { t: string; m: string; w: number; d: number };   // 取貨時間、地點、要秤、外送
 const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
 function cleanDaily(x: unknown): Record<string, Slot[]> | null {
@@ -158,7 +158,7 @@ function dailyCard(md: string, wd: string, slots: Slot[]) {
         ...(rows.length > shown.length ? [txt(`還有 ${rows.length - shown.length} 個時段，打開網頁看全部`, { size: "xs", color: "#8A847D", wrap: true })] : []),
       ] },
       footer: { type: "box", layout: "vertical", paddingAll: "16px", contents: [
-        { type: "button", style: "primary", color: "#7B1F24", height: "sm", action: { type: "uri", label: "打開訂購網頁看明細", uri: SITE } },
+        { type: "button", style: "primary", color: "#7B1F24", height: "sm", action: { type: "uri", label: "看今天的訂單", uri: SITE } },
       ] },
     },
   };
