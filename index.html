@@ -314,6 +314,7 @@
   /* 姓氏＋稱謂 */
   #surname{flex:1;min-width:0}
   #titleSeg{width:128px}
+  #walkSeg{width:180px;margin-left:auto}
   /* 對話框 */
   .dlg{position:fixed;inset:0;z-index:30;background:rgba(30,26,23,.45);display:none;align-items:center;justify-content:center;padding:20px}
   .dlg.show{display:flex}
@@ -440,6 +441,11 @@
 
   <h2 class="sec">客人</h2>
   <section class="card">
+    <div class="line"><span class="lbl">類型</span>
+      <div class="seg small" id="walkSeg" role="radiogroup" aria-label="客人類型">
+        <button type="button" data-w="" role="radio" aria-checked="true" class="on">預訂</button>
+        <button type="button" data-w="1" role="radio" aria-checked="false">現場客</button></div></div>
+    <div id="custBox">
     <div class="line"><label class="lbl" for="surname">姓氏</label>
       <input type="text" id="surname" placeholder="可不填（用電話後三碼）" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
       <div class="seg small" id="titleSeg" role="radiogroup" aria-label="稱謂">
@@ -449,6 +455,7 @@
     <div class="line"><label class="lbl" for="phone">電話</label>
       <input type="text" id="phone" placeholder="0912345678" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done"></div>
     <div class="err" id="phoneErr">請填寫手機號碼，09 開頭共 10 碼</div>
+    </div>
     <div class="line memo"><label class="lbl" for="memo">備註</label><textarea id="memo" rows="1" placeholder="切法、其他交代"></textarea></div>
   </section>
 
@@ -692,7 +699,7 @@ function buildText(o, opts = {}){
   // LINE 裡看的排版：一段一段分開，標題寫在分隔線裡，品項內縮（和剩貨分享同一種排法，不用 emoji）
   const L = [];
   if (o.st) L.push(`【${stLabel(o)}】`);
-  L.push(`${o.name}　${String(o.phone || "")}`);
+  L.push(o.phone ? `${o.name}　${o.phone}` : o.name);
   L.push("━━━━━━━━━━━━");
   if (o.date) L.push(`取貨　${fmtDate(o.date)}${o.ptime ? " " + o.ptime : ""}`);
   if (o.market) L.push(`地點　${o.market}`);
@@ -1591,6 +1598,15 @@ function update(){
 
 /* 稱謂 */
 let title = "";
+/* 現場客：當場買的客人，不用留姓氏和電話，名字記成「現場客」 */
+let walk = false;
+function setWalk(on){
+  walk = !!on;
+  document.querySelectorAll("#walkSeg button").forEach(x => { const v = !!x.dataset.w === walk; x.classList.toggle("on", v); x.setAttribute("aria-checked", v); });
+  $id("custBox").hidden = walk;
+  if (walk) { showErr("nameErr", false); showErr("phoneErr", false); if (!$id("pdate").value) setDate(ymd(new Date())); }   // 現場客通常今天取
+}
+document.getElementById("walkSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setWalk(b.dataset.w); });
 document.getElementById("titleSeg").addEventListener("click", e => {
   const b = e.target.closest("button[data-t]"); if (!b) return;
   title = b.dataset.t;
@@ -1614,9 +1630,9 @@ function validate(){
   const date = $id("pdate").value;
   const errs = [];
   // 沒填姓氏也可以：用電話後三碼記（例如「678小姐」）；有填姓氏就要選稱謂
-  const nameMsg = surname && !title ? "請選擇小姐或先生" : "";
+  const nameMsg = !walk && surname && !title ? "請選擇小姐或先生" : "";
   showErr("nameErr", !!nameMsg, nameMsg); if (nameMsg) errs.push($id("titleSeg"));
-  const phoneMsg = !phone ? "請填寫電話" : /^09\d{8}$/.test(phone) ? "" : "手機號碼要 09 開頭、共 10 碼";
+  const phoneMsg = walk ? "" : !phone ? "請填寫電話" : /^09\d{8}$/.test(phone) ? "" : "手機號碼要 09 開頭、共 10 碼";
   showErr("phoneErr", !!phoneMsg, phoneMsg); if (phoneMsg) errs.push($id("phone"));
   const addr = market === "外送" ? $id("addr").value.trim() : "";
   showErr("addrErr", market === "外送" && !addr); if (market === "外送" && !addr) errs.unshift($id("addr"));
@@ -1632,7 +1648,8 @@ function validate(){
     if (el.tagName === "INPUT") setTimeout(() => el.focus({ preventScroll: true }), 350);
     return null;
   }
-  return { surname, title, name: (surname || phone.slice(-3)) + title, phone, date, ptime: $id("ptime").value, addr };
+  if (walk) return { walk: true, surname: "", title: "", name: "現場客", phone: "", date, ptime: $id("ptime").value, addr };
+  return { walk: false, surname, title, name: (surname || phone.slice(-3)) + title, phone, date, ptime: $id("ptime").value, addr };
 }
 /* 改好了就把錯誤收起來 */
 $id("surname").addEventListener("input", () => { if (cleanSurname($id("surname").value) && title) showErr("nameErr", false); });
@@ -1681,7 +1698,7 @@ document.getElementById("submitBtn").onclick = async () => {
   sheet.innerHTML = `<h3>${editing ? "預覽修改" : "預覽訂單"}</h3>
     <p class="note">確認沒問題再按「儲存訂單」，按了才會存檔。</p>
     <div class="rows"><div class="row"><span>客人</span><span>${escapeHtml(who.name)}</span></div>
-    <div class="row"><span>電話</span><span>${escapeHtml(who.phone)}</span></div>
+    ${who.phone ? `<div class="row"><span>電話</span><span>${escapeHtml(who.phone)}</span></div>` : ""}
     <div class="row"><span>訂購日</span><span>${fmtDate(ymd(new Date()))}</span></div>
     <div class="row"><span>取貨</span><span>${fmtDate(who.date)} ${escapeHtml(who.ptime)}${market ? "・" + market : ""}</span></div>
     ${who.addr ? `<div class="row"><span>地址</span><span>${escapeHtml(who.addr)}</span></div>` : ""}
@@ -1813,7 +1830,7 @@ function fillForm(o){
   $id("surname").value = o.surname || ""; title = o.title || "";
   document.querySelectorAll("#titleSeg button").forEach(x => { const on = x.dataset.t === title; x.classList.toggle("on", on); x.setAttribute("aria-checked", on); });
   if (!o.surname && o.name && !/^\d/.test(o.name)) $id("surname").value = cleanSurname(o.name).slice(0, 1);
-  $id("phone").value = o.phone || "";
+  $id("phone").value = o.phone || ""; setWalk(o.walk);
   setDate(o.date || ""); $id("addr").value = o.addr || ""; paintAddr(); fillTimes(o.ptime || "");
   pay = o.pay || "none";
   document.querySelectorAll("#paySeg button").forEach(x => x.classList.toggle("on", x.dataset.pay === pay));
@@ -2670,6 +2687,7 @@ function resetForm(){
   document.querySelectorAll("#menu [data-want]").forEach(b => b.classList.remove("on"));
   ["surname", "phone", "memo", "ptime", "deposit", "addr"].forEach(id => document.getElementById(id).value = "");
   title = ""; document.querySelectorAll("#titleSeg button").forEach(x => { x.classList.remove("on"); x.setAttribute("aria-checked", false); });
+  setWalk(false);
   market = ""; document.querySelectorAll("#marketSeg button").forEach(x => x.classList.remove("on")); paintMarket();
   pay = "none"; document.querySelectorAll("#paySeg button").forEach(x => x.classList.toggle("on", x.dataset.pay === "none"));
   document.getElementById("depositBox").style.display = "none";
