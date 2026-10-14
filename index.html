@@ -109,6 +109,12 @@
   .stepper button[data-d="1"]:active{background:var(--soy);color:#fff}
   .stepper .q{min-width:28px;text-align:center;font-size:17px;font-variant-numeric:tabular-nums;color:#C4BEB7}
   .stepper.on .q{color:var(--ink);font-weight:600}
+  .stepper.typed input.q{width:88px;height:44px;border:none;border-radius:10px;background:var(--fill);text-align:center;font-size:18px;
+    font-variant-numeric:tabular-nums;color:var(--ink);outline:none;padding:0;-moz-appearance:textfield;appearance:textfield}
+  .stepper.typed input.q::-webkit-inner-spin-button,.stepper.typed input.q::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+  .stepper.typed input.q::placeholder{color:#C4BEB7;font-weight:400}
+  .stepper.typed input.q:focus{background:var(--soy-tint);box-shadow:0 0 0 2px var(--soy)}
+  .stepper.typed.on input.q{background:var(--card);color:var(--soy);font-weight:700;box-shadow:inset 0 0 0 1.5px var(--soy)}
   .stepper:not(.on) button[data-d="-1"]{color:#C4BEB7}
   .want{flex:none;min-width:72px;min-height:44px;border-radius:22px;background:var(--fill);font-size:15px;transition:background .12s,transform .08s}
   .want:active{transform:scale(.94);background:var(--fill-press)}
@@ -284,6 +290,7 @@
   /* UX 調整 */
   .it.picked{background:var(--soy-tint);margin:0 -14px;padding-left:14px;padding-right:14px;box-shadow:inset 4px 0 0 var(--soy)}
   .grp .it.picked{padding-left:26px}
+  .it.one.picked{padding-left:14px!important;padding-right:14px!important}
   .it.picked .it-name,.it.picked .spec{color:var(--soy);font-weight:600}
   .err.box{margin:12px 0 0;padding:10px 14px;border-radius:12px;background:var(--red-soft);font-size:15px}
   .err{font-size:14px}
@@ -570,7 +577,10 @@ function showPrices(focusKey){
 
 function render(){
   const menu = document.getElementById("menu");
-  const stepper = key => `<div class="stepper" id="s-${key}">
+  // 滷味直接打數字（量比較多，按＋－太慢）；其他照舊用＋－
+  const stepper = (key, typed, label) => typed ? `<div class="stepper typed" id="s-${key}">
+      <input class="q" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="999" enterkeyhint="done" data-qk="${key}" placeholder="0" aria-label="${label}幾個"></div>`
+    : `<div class="stepper" id="s-${key}">
       <button type="button" data-k="${key}" data-d="-1" aria-label="減少">${ICON.minus}</button>
       <span class="q">0</span>
       <button type="button" data-k="${key}" data-d="1" aria-label="增加">${ICON.plus}</button></div>`;
@@ -610,7 +620,7 @@ function render(){
           return `<div class="it one${multi && oi ? " sub" : ""}" data-item="${it.name}"><div class="it-main">
               <span class="it-name">${multi && oi ? "" : it.name}</span><span class="${multi ? "spec-m" : "spec-s"}">${o.label.replace(/（.*?）/, "")}</span>
               <button type="button" class="pr" data-pr="${key}" data-note="${(o.label.match(/（(.*?)）/) || [])[1] || ""}"${it.weigh ? ' data-w="1"' : ""} aria-label="設定單價"></button></div>
-            ${stepper(key)}</div>`;
+            ${stepper(key, sec.cat === "滷味", it.name + (multi ? o.label : ""))}</div>`;
         }).join("");
         html += it.opts.length > 1 ? `<div class="grp g1">${rows}</div>` : rows;
       }
@@ -646,6 +656,12 @@ function render(){
     update();
   });
   menu.addEventListener("input", e => {
+    if (e.target.dataset.qk) {
+      const k = e.target.dataset.qk, n = Math.min(999, Math.max(0, Math.floor(Number(e.target.value) || 0)));
+      if (e.target.value !== "" && String(n) !== e.target.value) e.target.value = n || "";
+      qty[k] = n; e.target.closest(".stepper").classList.toggle("on", n > 0);
+      update(); return;
+    }
     if (e.target.dataset.amt) {
       const k = e.target.dataset.amt; amounts[k] = money(e.target.value); if (Number(e.target.value) < 0) e.target.value = "";
       if (amounts[k] > 0 && !want[k]) { want[k] = true; menu.querySelector(`[data-want="${k}"]`).classList.add("on"); }
@@ -655,6 +671,9 @@ function render(){
     if (e.target.dataset.p) { prices[e.target.dataset.p] = money(e.target.value); savePrices(); update(); }
   });
 }
+
+/* 數量顯示：＋－ 的是文字，滷味的是輸入框（0 顯示空白） */
+function setQ(st, v){ const q = st.querySelector(".q"); if (q.tagName === "INPUT") q.value = v ? v : ""; else q.textContent = v; }
 
 function getLines(){
   const lines = [];
@@ -1689,7 +1708,7 @@ $id("titleSeg").addEventListener("click", () => { if (cleanSurname($id("surname"
 $id("phone").addEventListener("input", () => { { const n = $id("phone").value.replace(/\D/g, "").length; if (!n || n >= 8) showErr("phoneErr", false); } });
 /* 鍵盤的「下一步／完成」 */
 $id("surname").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); title ? $id("phone").focus() : e.target.blur(); } });
-document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches && e.target.matches('#phone, #deposit, .pin input')) { e.preventDefault(); e.target.blur(); } });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches && e.target.matches('#phone, #deposit, .pin input, .stepper input')) { e.preventDefault(); e.target.blur(); } });
 
 const modal = document.getElementById("modal"), sheet = document.getElementById("sheet");
 modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("show"); });
@@ -1853,7 +1872,7 @@ function fillForm(o){
     }
   }
   // 畫面
-  document.querySelectorAll("#menu .stepper").forEach(st => { const k = st.id.slice(2); st.querySelector(".q").textContent = qty[k] || 0; st.classList.toggle("on", (qty[k] || 0) > 0); });
+  document.querySelectorAll("#menu .stepper").forEach(st => { const k = st.id.slice(2); setQ(st, qty[k] || 0); st.classList.toggle("on", (qty[k] || 0) > 0); });
   paintPrices();
 
   document.querySelectorAll("#menu [data-amt]").forEach(i => i.value = amounts[i.dataset.amt] || "");
@@ -2726,7 +2745,7 @@ document.getElementById("marketSeg").addEventListener("click", e => {
 
 /* 清空表單準備下一筆（和重新整理後的畫面一樣；單價會保留） */
 function resetForm(){
-  Object.keys(qty).forEach(k => { qty[k] = 0; const s = document.getElementById("s-" + k); if (s) { s.querySelector(".q").textContent = 0; s.classList.remove("on"); } });
+  Object.keys(qty).forEach(k => { qty[k] = 0; const s = document.getElementById("s-" + k); if (s) { setQ(s, 0); s.classList.remove("on"); } });
   [amounts, pcPrice, want].forEach(o => Object.keys(o).forEach(k => delete o[k]));
   document.querySelectorAll("#menu [data-amt], #menu [data-pcp]").forEach(i => i.value = "");
   document.querySelectorAll("#menu [data-want]").forEach(b => b.classList.remove("on"));
