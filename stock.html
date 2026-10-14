@@ -637,10 +637,10 @@ function specCount(spec, v){
   const m = String(spec).match(/^一(.)$/);
   return m ? `${v} ${m[1]}` : Number(v) === 1 ? spec : `${v} 個${spec}`;
 }
-/* 分享（只列有剩的）：分類前面加圖示，在 LINE 群組比較好認 */
-/* 分類寫在分隔線裡：━━ 煙燻 ━━━━━━（不用 emoji，每支手機看起來都一樣） */
-const SHARE_HEAD = { "煙燻": "煙燻", "滷味": "滷味", "備品": "要帶" };
-const shareHead = c => `━━ ${SHARE_HEAD[c] || catLabel(c)} ━━━━━━`;
+/* 分享（只列有剩的）：和訂單長得不一樣，掃一眼就分得出來
+   剩貨＝短清單「・雞肉 1 隻＋半隻」，分類用〔煙燻〕；要帶＝打勾清單「☐ 便當盒 2 個」（不用 emoji，每支手機看起來都一樣） */
+const SHARE_HEAD = { "備品": "要帶" };
+const shareHead = c => `〔${SHARE_HEAD[c] || catLabel(c)}〕`;
 function stockText(rec = cur(), d0 = date, m0 = mk){
   const d = fmtDate(d0).replace("(", "（").replace(")", "）");
   let t = "", cat = "";
@@ -653,9 +653,13 @@ function stockText(rec = cur(), d0 = date, m0 = mk){
   });
   // 標題照內容寫：只有備品就是【要帶】，不要和剩貨搞混
   const hasStock = groups.some(g => g.cat !== "備品"), hasBring = groups.some(g => g.cat === "備品");
-  t = `【${hasStock && hasBring ? "剩貨・要帶" : hasBring ? "要帶" : "剩貨"}】${d}${MKT[m0]}\n`;
+  t = `▍${hasStock && hasBring ? "剩貨・要帶" : hasBring ? "要帶" : "剩貨"}　${d} ${MKT[m0]}\n`;
   if (!groups.length) t += "\n（沒有剩貨紀錄）";
-  groups.forEach(g => { if (g.cat !== cat) { cat = g.cat; t += `\n${shareHead(cat)}\n`; } t += `　${g.grp}　${g.parts.join("＋")}\n`; });
+  groups.forEach(g => {
+    const bring = g.cat === "備品";
+    if (g.cat !== cat) { cat = g.cat; t += "\n" + (bring && !hasStock ? "" : shareHead(cat) + "\n"); }
+    t += `${bring ? "☐ " : "・"}${g.grp} ${g.parts.join("＋")}\n`;
+  });
   if (rec.note) t += `\n※ ${rec.note}`;
   return t.trim();
 }

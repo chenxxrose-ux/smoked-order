@@ -721,7 +721,7 @@ const lineHead = t => `━━ ${t} ━━━━━━`;
 function buildText(o, opts = {}){
   // LINE 裡看的排版：一段一段分開，標題寫在分隔線裡，品項內縮（和剩貨分享同一種排法，不用 emoji）
   const L = [];
-  L.push(`【訂單${o.st ? "・" + stLabel(o) : ""}】`);   // 和【剩貨】【要帶】分得出來
+  L.push(`【訂單${o.st ? "・" + stLabel(o) : ""}】`);   // 和剩貨（▍剩貨）、要帶（▍要帶）分得出來
   L.push(o.phone ? `${o.name}　${o.phone}` : o.walk ? o.name : `${o.name}　電話未留`);
   L.push("━━━━━━━━━━━━");
   if (o.date) L.push(`取貨　${fmtDate(o.date)}${o.ptime ? " " + o.ptime : ""}`);
