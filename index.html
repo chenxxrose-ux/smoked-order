@@ -63,6 +63,7 @@
   .line.memo .lbl{padding-top:12px}
   .err{color:var(--red);font-size:13px;padding:0 0 10px 64px;display:none}
   .owe{flex:none;font-size:14px;color:var(--sub)}
+  .owe.back{color:var(--soy);font-weight:600;font-size:15px}
 
   .field-btn{flex:1;min-width:0;min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;font-size:16px}
   .field-btn .ic{color:#B9B3AC}
@@ -2582,16 +2583,17 @@ setTimeout(paintOpt, 0);
 function currentTotal(){ return getLines().reduce((s, l) => s + (l.sub || 0), 0); }
 function updateOwe(){
   const dep = money(depInput.value), lines = getLines(), tot = currentTotal();
-  document.getElementById("owe").textContent = !dep ? "" : (hasPending(lines) || hasUnpriced(lines)) ? "尾款待確認" : tot ? `尾款 $${Math.max(0, tot - dep)}` : "";
+  const el = document.getElementById("owe"), back = !(hasPending(lines) || hasUnpriced(lines)) && tot > 0 && dep > tot;
+  el.textContent = !dep ? "" : (hasPending(lines) || hasUnpriced(lines)) ? "尾款待確認" : !tot ? "" : back ? `要找客人 $${dep - tot}` : `尾款 $${tot - dep}`;
+  el.classList.toggle("back", back);   // 客人給的比合計多 → 直接算要找多少
 }
-/* 付款金額檢查：訂金要是正整數、不能比已知總額多；還有秤重或未定價就不能選「已付清」 */
+/* 付款金額檢查：訂金要是正整數（比合計多就是要找錢，不算錯）；還有秤重或未定價就不能選「已付清」 */
 function payProblem(lines){
   const tot = lines.reduce((s, l) => s + (l.sub || 0), 0), open = hasPending(lines) || hasUnpriced(lines);
   if (pay === "deposit") {
     const raw = depInput.value.trim(), dep = Number(raw);
     if (!raw) return "請填訂金金額";
     if (!Number.isInteger(dep) || dep <= 0) return "訂金要是大於 0 的整數";
-    if (!open && tot > 0 && dep > tot) return `訂金 $${dep} 比合計 $${tot} 還多，請確認`;
   }
   if (pay === "full" && open) return "還有秤重或未定價的品項，金額還沒確定，不能選「已付清」。可以先選「付訂金」";
   return "";
@@ -2602,7 +2604,7 @@ function payText(o){
     const items = o.items || [], dep = Number(o.deposit) || 0;
     if (hasPending(items) || hasUnpriced(items)) return `訂金 $${dep}・尾款待金額確認後計算`;
     const bal = calcTotal(items) - dep;
-    return bal >= 0 ? `訂金 $${dep}・尾款 $${bal}` : `訂金 $${dep}・應退 $${-bal}`;
+    return bal >= 0 ? `訂金 $${dep}・尾款 $${bal}` : `收 $${dep}・要找客人 $${-bal}`;
   }
   return "未付款";
 }
