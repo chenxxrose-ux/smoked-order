@@ -1018,6 +1018,7 @@ const Vault = {
     }
     this.orders = list.sort((a, b) => b.id - a.id);
     this.trash = trash.sort((a, b) => b.del - a.del);
+    lineDailySoon();
   },
   lock(forget){ this.priv = null; this.keys = null; this.orders = null; this.trash = null; this.unlockedAt = 0; if (forget) KV.del(KEYS_KV); },
   /* 取出原始私鑰（更換密碼時把舊金鑰放進新的金鑰圈） */
@@ -1117,6 +1118,7 @@ const Vault = {
     if (this.orders) {
       const j = this.orders.findIndex(x => x.id === order.id);
       if (j >= 0) this.orders[j] = order; else this.orders.unshift(order);
+      lineDailySoon();
     }
   },
   /* del=時間：移到「最近刪除」；del=0：復原 */
@@ -1128,6 +1130,7 @@ const Vault = {
     if (this.orders) {
       if (del) { const moved = this.orders.filter(o => set.has(o.id)); this.orders = this.orders.filter(o => !set.has(o.id)); this.trash = [...moved.map(o => ({ o, del })), ...(this.trash || [])]; }
       else { const back = (this.trash || []).filter(t => set.has(t.o.id)); this.trash = (this.trash || []).filter(t => !set.has(t.o.id)); this.orders = [...this.orders, ...back.map(t => t.o)].sort((a, b) => b.id - a.id); }
+      lineDailySoon();
     }
   },
   remove(id){ this.setDel([id], Date.now()); },
@@ -1468,6 +1471,30 @@ window.addEventListener("online", () => Sync.run());
 window.addEventListener("offline", () => { Sync.state = "off"; Sync.paint(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) Sync.run(); });
 
+
+/* LINE 中午提醒：只交「哪天幾筆、幾點取、在哪、要不要秤」，不交客人名字電話。
+   內容沒變就不傳；同步中先等同步完，免得拿舊資料蓋掉別支手機剛存的。 */
+var lineDailyTimer = null;
+function lineDailySoon(){
+  clearTimeout(lineDailyTimer);
+  lineDailyTimer = setTimeout(lineDailySend, 4000);
+}
+async function lineDailySend(){
+  if (!Vault.orders || !Sync.on() || !navigator.onLine) return;
+  if (Sync.busy) { lineDailySoon(); return; }
+  const today = ymd(new Date()), end = ymd(new Date(Date.now() + 45 * 864e5)), daily = {};
+  for (const o of Vault.orders) {
+    if (o.st || !o.date || o.date < today || o.date > end) continue;
+    (daily[o.date] = daily[o.date] || []).push({ t: /^\d{1,2}:\d{2}$/.test(o.ptime || "") ? o.ptime : "", m: o.market === "外送" ? "" : String(o.market || "").slice(0, 12),
+      w: (o.items || []).some(l => l.sub === null) ? 1 : 0, d: o.market === "外送" ? 1 : 0 });
+  }
+  const sig = JSON.stringify(daily), memo = "lineDaily:" + today;
+  try { if (localStorage.getItem("lineDailySig") === memo + sig) return; } catch (e) {}
+  try {
+    await LineBot.call({ op: "daily", daily });
+    try { localStorage.setItem("lineDailySig", memo + sig); } catch (e) {}
+  } catch (e) {}   // 還沒連 LINE 或暫時連不上：下次有變動再傳
+}
 
 function refreshOrderView(){
   if (!Vault.orders || !modal.classList.contains("show")) return;
