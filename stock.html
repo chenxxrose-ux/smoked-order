@@ -414,7 +414,7 @@ const MKT = { ba: "爸爸市場", ma: "媽媽市場" };
 const WEIGH_UNIT = "斤";
 /* 用選的品項：[數值, 文字]，再按一次取消 */
 const LV_SMALL = [[2, "很多"], [1, "一點"]];
-const LEVEL_ITEMS = { "鴨腸": LV_SMALL, "口香糖": LV_SMALL, "大腸": LV_SMALL, "海帶": LV_SMALL, "豆乾": LV_SMALL };
+const LEVEL_ITEMS = { "鴨腸": LV_SMALL, "口香糖": LV_SMALL, "大腸": LV_SMALL, "海帶": LV_SMALL, "豆乾": LV_SMALL, "滷味|鴨胗": LV_SMALL };   // 「類別|品名」只改那一類（煙燻鴨胗還是打數字）
 /* 用袋子算的品項：每種袋子分開打幾個 */
 const BAG_PARTS = ["一包", "半包", "一斤手提", "兩斤手提", "兩斤透明"];
 const BAG_ITEMS = { "雞腳": BAG_PARTS, "鴨翅": BAG_PARTS };
@@ -424,7 +424,8 @@ const COUNT_PARTS = { "豬頭皮": ["塊", "條", "件"], "米血": ["包", "片
 const ROWS = [];
 const byLen = arr => sortNames(arr, x => x.name).map(x => x[0]);
 MENU.forEach(sec => byLen(sec.items).forEach(it => {
-  if (LEVEL_ITEMS[it.name]) ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|量`, name: it.name, kind: "lvl", unit: "", levels: LEVEL_ITEMS[it.name] });
+  const lvl = LEVEL_ITEMS[`${sec.cat}|${it.name}`] || LEVEL_ITEMS[it.name];
+  if (lvl) ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|量`, name: it.name, kind: "lvl", unit: "", levels: lvl });
   else if (BAG_ITEMS[it.name]) BAG_ITEMS[it.name].forEach(b => ROWS.push({ cat: sec.cat, grp: it.name, multi: true, key: `${it.name}|袋|${b}`, name: it.name, spec: b, kind: "n", unit: "" }));
   else if (COUNT_PARTS[it.name]) COUNT_PARTS[it.name].forEach(u => ROWS.push({ cat: sec.cat, grp: it.name, multi: true, cnt: true, key: `${it.name}|${u}`, name: it.name, spec: u, kind: "n", unit: u }));
   else if (it.type === "amount") ROWS.push({ cat: sec.cat, grp: it.name, key: `${it.name}|`, name: it.name, kind: "w", unit: WEIGH_UNIT });
