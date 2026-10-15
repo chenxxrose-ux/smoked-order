@@ -512,7 +512,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=6"></script>
-<script src="core.js?v=8"></script>
+<script src="core.js?v=9"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -769,7 +769,7 @@ function orderCard(o, opts = {}){
   const note = totalNote(o.items); if (note) body.push(K.t(note.replace(/^＋/, ""), { size: "xs", color: C.gold, align: "end" }));
   if (o.pay) { const pt = payText(o); body.push(K.kv("付款", pt, { c: pt === "未付款" ? C.red : C.ink, bold: true })); }
   if (o.st === "cancel" && o.refund) body.push(K.kv("退款", `已收 $${paidOf(o)}・${REFUND[o.refund]}`));
-  return { alt: `訂單｜${o.name || "客人"}　${when}`, contents: K.bubble(K.band("o", "訂單", when, o.market || ""), body) };
+  return { alt: `訂單｜${o.name || "客人"}　${when}`, contents: K.bubble(K.oband("訂單", o.market || "", when), body) };
 }
 /* 金額一律是 0 以上的整數（負數、亂打都當 0） */
 const money = v => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(n, 9999999) : 0; };
