@@ -169,7 +169,7 @@ async function retryKey(s: string) {
   const x = [...h].map(b => b.toString(16).padStart(2, "0")).join("");
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
 }
-async function tick(force = false, dry = false) {
+async function tick(force = false, dry = false, probe: unknown = null) {
   const cfg = await getCfg();
   const { ymd, wd, md } = twToday();
   if (!cfg.token || !cfg.group) return { sent: false, why: "no group" };
@@ -179,7 +179,8 @@ async function tick(force = false, dry = false) {
   const slots = daily[ymd] || [];
   if (dry) {   // 只請 LINE 檢查卡片格式，不真的傳（沒訂單就用範例）
     const sample: Slot[] = slots.length ? slots : [{ t: "10:00", m: "爸爸市場", w: 0, d: 0 }, { t: "14:30", m: "", w: 1, d: 1 }, { t: "", m: "媽媽市場", w: 0, d: 0 }];
-    const v = await line(cfg.token, "/message/validate/push", { method: "POST", body: JSON.stringify({ messages: [dailyCard(md, wd, sample)] }) });
+    const msg = probe && typeof probe === "object" ? { type: "flex", altText: "test", contents: probe } : dailyCard(md, wd, sample);   // probe：檢查網頁做的卡片
+    const v = await line(cfg.token, "/message/validate/push", { method: "POST", body: JSON.stringify({ messages: [msg] }) });
     return { dry: true, ok: v.ok, status: v.status, detail: v.ok ? undefined : v.j, today: ymd, n: slots.length };
   }
   await setCfg({ tick_last: ymd });
@@ -204,7 +205,7 @@ Deno.serve(async (req) => {
   if (b.op === "tick") {   // 資料庫排程：key 只存在資料庫裡
     const k = (await getCfg()).cron_key;
     if (!k || typeof b.key !== "string" || b.key !== k) return json(req, { error: "no" }, 403);
-    try { return json(req, await tick(!!b.force, !!b.dry)); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
+    try { return json(req, await tick(!!b.force, !!b.dry, b.dry ? b.probe : null)); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
   }
   if (!isTag(b.tag)) return json(req, { error: "bad tag" }, 400);
   try {
@@ -254,8 +255,14 @@ Deno.serve(async (req) => {
       if (!cfg.group) return json(req, { error: "no group" }, 409);
       const text = typeof b.text === "string" ? b.text.trim() : "";
       if (!text || text.length > 4900) return json(req, { error: "bad text" }, 400);
-      const r = await line(cfg.token, "/message/push", { method: "POST", body: JSON.stringify({ to: cfg.group, messages: [{ type: "text", text }] }),
-        headers: { "X-Line-Retry-Key": typeof b.id === "string" && /^[0-9a-f-]{36}$/.test(b.id) ? b.id : crypto.randomUUID() } });
+      // 有卡片就傳卡片（收據樣子）；LINE 不收這張卡片（400）就改傳純文字，不會漏掉
+      const flex = b.flex && typeof b.flex === "object" && b.flex.type === "bubble" && JSON.stringify(b.flex).length < 28000 ? b.flex : null;
+      const alt = (typeof b.alt === "string" && b.alt.trim() ? b.alt.trim() : text.split("\n")[0]).slice(0, 380);
+      const key = typeof b.id === "string" && /^[0-9a-f-]{36}$/.test(b.id) ? b.id : crypto.randomUUID();
+      const push = (msg: unknown, k: string) => line(cfg.token, "/message/push", { method: "POST", body: JSON.stringify({ to: cfg.group, messages: [msg] }),
+        headers: { "X-Line-Retry-Key": k } });
+      let r = await push(flex ? { type: "flex", altText: alt, contents: flex } : { type: "text", text }, key);
+      if (flex && r.status === 400) { console.error("flex", r.j); r = await push({ type: "text", text }, crypto.randomUUID()); }
       if (r.status === 409) return json(req, { ok: true, dup: true });   // 同一則已送過（重試）
       if (r.status === 429) return json(req, { error: "quota" }, 429);
       if (r.status === 400 || r.status === 403 || r.status === 404) { console.error("push", r.status, r.j); return json(req, { error: "group gone" }, 409); }

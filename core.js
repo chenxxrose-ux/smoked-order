@@ -669,6 +669,41 @@ const LINE_ERR = {
   "token rejected": "LINE 不接受這組 access token，請重新複製一次", "bad secret": "Channel secret 應該是 32 個英文和數字，請重新複製",
   "bad token": "Channel access token 好像沒有複製完整，請重新複製", "group gone": "傳不進群組，可能官方帳號被移出群組了，請重新連接",
 };
+/* LINE 卡片（Flex）：像收據一樣，上面一整條顏色＋大字標題，掃一眼分得出是哪一種
+   訂單＝深紅、剩貨＝黃、要帶＝藍。卡片傳不過去時，伺服器會改傳純文字。 */
+const LineCard = {
+  C: { ink: "#1E1A17", sub: "#8A847D", hair: "#ECE9E4", soy: "#7B1F24", gold: "#8A5A00", blue: "#2F5D8A", red: "#B3261E" },
+  BAND: { o: ["#7B1F24", "#FFFFFF"], s: ["#F2C14E", "#3B2A05"], b: ["#2F5D8A", "#FFFFFF"] },
+  t(text, o = {}){ return { type: "text", text: String(text ?? "").trim() || " ", wrap: true, ...o }; },
+  band(kind, title, top, sub){
+    const [bg, fg] = this.BAND[kind];
+    return { type: "box", layout: "horizontal", backgroundColor: bg, paddingAll: "18px", spacing: "md", contents: [
+      this.t(title, { size: "xxl", weight: "bold", color: fg, flex: 0, wrap: false, gravity: "bottom" }),
+      { type: "box", layout: "vertical", flex: 1, justifyContent: "flex-end", contents: [
+        this.t(top, { size: "sm", weight: "bold", color: fg, align: "end" }),
+        ...(sub ? [this.t(sub, { size: "xs", color: fg, align: "end" })] : []),
+      ] },
+    ] };
+  },
+  row(l, r, o = {}){
+    return { type: "box", layout: "horizontal", spacing: "md", margin: o.margin || "sm", contents: [
+      this.t(l, { size: o.size || "md", color: o.lc || this.C.ink, flex: o.lflex || 1, ...(o.lw ? { weight: "bold" } : {}) }),
+      this.t(r, { size: o.size || "md", color: o.rc || this.C.ink, flex: 0, align: "end", wrap: false, ...(o.rw ? { weight: "bold" } : {}) }),
+    ] };
+  },
+  kv(k, v, o = {}){
+    return { type: "box", layout: "horizontal", spacing: "md", margin: "sm", contents: [
+      this.t(k, { size: "sm", color: this.C.sub, flex: 0 }),
+      this.t(v, { size: "sm", color: o.c || this.C.ink, flex: 1, align: "end", ...(o.bold ? { weight: "bold" } : {}) }),
+    ] };
+  },
+  label(t, c){ return this.t(t, { size: "xs", color: c || this.C.sub, weight: "bold", margin: "lg" }); },
+  sep(){ return { type: "separator", color: this.C.hair, margin: "lg" }; },
+  bubble(band, body){
+    return { type: "bubble", size: "mega", header: { ...band }, body: { type: "box", layout: "vertical", paddingAll: "18px", paddingTop: "8px", contents: body } };
+  },
+};
+
 const LineBot = {
   busy: false,
   async tag(){
@@ -737,7 +772,7 @@ const LineBot = {
   },
 
   /* 設定好就傳；還沒設定就先帶著設定。回傳 { group, quota } 或 null */
-  async send(text, btn){
+  async send(text, btn, card){
     if (this.busy) return null;
     if (!navigator.onLine) { toast("沒有網路，請連上網路後再傳", true); return null; }
     this.busy = true;
@@ -748,7 +783,8 @@ const LineBot = {
       if (!s.ready) { if (btn) btn.innerHTML = old; if (!(await this.setupDialog())) return null; s = await this.call({ op: "status" }); }
       if (!s.group) { if (btn) btn.innerHTML = old; if (!(await this.pairDialog())) return null; s = await this.call({ op: "status" }); }
       if (btn) btn.textContent = "傳送中…";
-      const r = await this.call({ op: "send", text, id: crypto.randomUUID ? crypto.randomUUID() : undefined });
+      const r = await this.call({ op: "send", text, id: crypto.randomUUID ? crypto.randomUUID() : undefined,
+        ...(card ? { flex: card.contents, alt: card.alt } : {}) });
       return { group: s.group, quota: r.quota };
     } catch (e) {
       toast(this.msg(e), true);

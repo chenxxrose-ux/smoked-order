@@ -400,7 +400,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=4"></script>
-<script src="core.js?v=7"></script>
+<script src="core.js?v=8"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -663,6 +663,35 @@ function stockText(rec = cur(), d0 = date, m0 = mk){
   if (rec.note) t += `\n※ ${rec.note}`;
   return t.trim();
 }
+/* LINE 卡片版：剩貨＝黃色標題的數量清單；只有備品＝藍色「要帶」打勾清單；兩種都有就同一張，下面接藍色「要帶」 */
+function stockCard(rec = cur(), d0 = date, m0 = mk){
+  const K = LineCard, C = K.C, d = fmtDate(d0).replace("(", "（").replace(")", "）");
+  const groups = [];
+  ROWS.forEach(r => {
+    const v = rec.v[r.key]; if (!v) return;
+    let g = groups.find(x => x.cat === r.cat && x.grp === r.grp);
+    if (!g) { g = { cat: r.cat, grp: r.grp, parts: [], lv: null }; groups.push(g); }
+    if (r.kind === "lvl") g.lv = v;
+    g.parts.push(r.kind === "lvl" ? ((r.levels.find(x => x[0] === v) || [])[1] || v) : r.cnt ? `${v} ${r.unit}` : r.multi ? specCount(r.spec, v) : `${v}${r.unit ? " " + r.unit : ""}`);
+  });
+  const stock = groups.filter(g => g.cat !== "備品"), bring = groups.filter(g => g.cat === "備品");
+  const body = [];
+  let cat = "";
+  stock.forEach(g => {
+    if (g.cat !== cat) { if (cat) body.push(K.sep()); cat = g.cat; body.push(K.label(g.cat)); }
+    body.push(K.row(g.grp, g.parts.join("＋"), { rw: true, rc: g.lv === 2 ? C.gold : g.lv === 1 ? C.sub : C.ink }));
+  });
+  if (bring.length) {
+    if (stock.length) { body.push(K.sep()); body.push(K.label("要帶（出門前帶齊）", C.blue)); }
+    bring.forEach(g => body.push(K.row("☐  " + g.grp, g.parts.join("＋"), { size: "lg", rw: true, margin: "md" })));
+  }
+  if (!groups.length) body.push(K.t("（沒有剩貨紀錄）", { color: C.sub, margin: "md" }));
+  if (rec.note) { body.push(K.sep()); body.push(K.t("※ " + rec.note, { size: "sm", margin: "md" })); }
+  const onlyBring = bring.length && !stock.length;
+  const band = onlyBring ? K.band("b", "要帶", d, `${MKT[m0]}・出門前帶齊`)
+    : K.band("s", stock.length && bring.length ? "剩貨＋要帶" : "剩貨", d, `${MKT[m0]}・收攤剩下的`);
+  return { alt: `${onlyBring ? "要帶" : "剩貨"}｜${d} ${MKT[m0]}`, contents: K.bubble(band, body) };
+}
 /* 頂部固定：正在記哪一天、哪個市場、存了沒 */
 function paintCtx(){
   const st = !mk ? "" : !Sync.on() ? "已存在這支手機" : (Sync.need() ? "已存手機・需要店家密碼" : { busy: "同步中…", off: "已存手機・離線", err: "已存手機・同步失敗", ok: Sync.pending() ? "已存手機・等待上傳" : "已儲存・已同步" }[Sync.state] || "已儲存");
@@ -692,7 +721,7 @@ $("lineBtn").onclick = async () => {
   if (sharing) return;
   if (!mk) { await askMarket(); return; }
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-  const r = await LineBot.send(stockText(), $("lineBtn"));
+  const r = await LineBot.send(stockText(), $("lineBtn"), stockCard());
   if (r) afterShare("line", `已傳到 LINE「${r.group}」${LineBot.quotaText(r.quota) ? "（" + LineBot.quotaText(r.quota) + "）" : ""}`);
 };
 /* 分享完：記下分享時間（存到後台），清空選擇，準備記下一筆 */
