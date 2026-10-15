@@ -670,10 +670,10 @@ const LINE_ERR = {
   "bad token": "Channel access token 好像沒有複製完整，請重新複製", "group gone": "傳不進群組，可能官方帳號被移出群組了，請重新連接",
 };
 /* LINE 卡片（Flex）：像收據一樣，上面一整條顏色＋大字標題，掃一眼分得出是哪一種
-   訂單＝深紅、剩貨＝黃、要帶＝藍。卡片傳不過去時，伺服器會改傳純文字。 */
+   訂單＝深紅；剩貨／要帶看市場（媽媽＝黃、爸爸＝綠）。卡片傳不過去時，伺服器會改傳純文字。 */
 const LineCard = {
   C: { ink: "#1E1A17", sub: "#8A847D", hair: "#ECE9E4", soy: "#7B1F24", gold: "#8A5A00", blue: "#2F5D8A", red: "#B3261E" },
-  BAND: { o: ["#7B1F24", "#FFFFFF"], s: ["#F2C14E", "#3B2A05"], b: ["#2F5D8A", "#FFFFFF"] },
+  BAND: { o: ["#7B1F24", "#FFFFFF"], s: ["#F2C14E", "#3B2A05"], b: ["#2F5D8A", "#FFFFFF"], ma: ["#F2C14E", "#3B2A05"], ba: ["#2E7D5B", "#FFFFFF"] },
   t(text, o = {}){ return { type: "text", text: String(text ?? "").trim() || " ", wrap: true, ...o }; },
   band(kind, title, top, sub){
     const [bg, fg] = this.BAND[kind];
@@ -682,6 +682,32 @@ const LineCard = {
       { type: "box", layout: "vertical", flex: 1, justifyContent: "flex-end", contents: [
         this.t(top, { size: "sm", weight: "bold", color: fg, align: "end" }),
         ...(sub ? [this.t(sub, { size: "xs", color: fg, align: "end" })] : []),
+      ] },
+    ] };
+  },
+  /* 剩貨／要帶：顏色看市場（媽媽＝黃、爸爸＝綠），最大字寫市場名稱，下面小標籤寫種類和日期 */
+  mband(mkt, kind, date){
+    const [bg, fg] = this.BAND[mkt] || this.BAND.s;
+    return { type: "box", layout: "vertical", backgroundColor: bg, paddingAll: "18px", paddingBottom: "14px", spacing: "sm", contents: [
+      this.t(this.MKT_NAME[mkt] || mkt, { size: "3xl", weight: "bold", color: fg, wrap: false }),
+      { type: "box", layout: "horizontal", spacing: "md", contents: [
+        { type: "box", layout: "vertical", flex: 0, cornerRadius: "999px", backgroundColor: fg === "#FFFFFF" ? "#FFFFFF47" : "#3B2A051F", paddingStart: "10px", paddingEnd: "10px", paddingTop: "2px", paddingBottom: "2px",
+          contents: [this.t(kind, { size: "sm", weight: "bold", color: fg, wrap: false })] },
+        this.t(date, { size: "sm", weight: "bold", color: fg, flex: 1, wrap: false, gravity: "center" }),
+      ] },
+    ] };
+  },
+  MKT_NAME: { ma: "媽媽市場", ba: "爸爸市場" },
+  /* 訂單：深紅底（訂單專用色），右邊市場做成白底深紅大字標籤，下面是取貨時間 */
+  oband(title, market, when){
+    const [bg, fg] = this.BAND.o, [pb, pf] = ["#FFFFFF", this.C.soy];
+    return { type: "box", layout: "horizontal", backgroundColor: bg, paddingAll: "18px", spacing: "md", contents: [
+      this.t(title, { size: "xxl", weight: "bold", color: fg, flex: 0, wrap: false, gravity: "bottom" }),
+      { type: "box", layout: "vertical", flex: 1, spacing: "sm", justifyContent: "flex-end", contents: [
+        ...(market ? [{ type: "box", layout: "horizontal", contents: [{ type: "filler" },
+          { type: "box", layout: "vertical", flex: 0, cornerRadius: "8px", backgroundColor: pb, paddingStart: "10px", paddingEnd: "10px", paddingTop: "3px", paddingBottom: "3px",
+            contents: [this.t(market, { size: "lg", weight: "bold", color: pf, wrap: false })] }] }] : []),
+        this.t(when, { size: "sm", weight: "bold", color: fg, align: "end" }),
       ] },
     ] };
   },
