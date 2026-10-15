@@ -98,7 +98,7 @@ async function webhook(body: string, sig: string) {
 }
 
 /* ===== 每天中午的訂單提醒 ===== */
-const SITE = "https://chenxxrose-ux.github.io/smoked-order/?today";
+const SITE = "https://chenxxrose-ux.github.io/smoked-order/?today&openExternalBrowser=1";   // 用 Safari 打開：LINE 內建瀏覽器記不住密碼，每次都要重輸
 type Slot = { t: string; m: string; w: number; d: number; n?: string; i?: string };   // 取貨時間、地點、要秤、外送、稱呼、品項（不含電話地址）
 const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
 function cleanDaily(x: unknown): Record<string, Slot[]> | null {
