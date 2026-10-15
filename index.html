@@ -1537,7 +1537,10 @@ async function lineDailySend(){
   for (const o of Vault.orders) {
     if (o.st || !o.date || o.date < today || o.date > end) continue;
     (daily[o.date] = daily[o.date] || []).push({ t: /^\d{1,2}:\d{2}$/.test(o.ptime || "") ? o.ptime : "", m: o.market === "外送" ? "" : String(o.market || "").slice(0, 12),
-      w: (o.items || []).some(l => l.sub === null) ? 1 : 0, d: o.market === "外送" ? 1 : 0 });
+      w: (o.items || []).some(l => l.sub === null) ? 1 : 0, d: o.market === "外送" ? 1 : 0,
+      // 中午提醒卡片要顯示「誰、訂什麼」：只傳稱呼和品項，不傳電話、地址
+      n: String(o.name || "").slice(0, 16),
+      i: (o.items || []).map(l => (l.sub !== null && l.weigh ? (l.short || l.item).replace(/ 約\$\d+/, "") : (l.short || l.item))).join("、").slice(0, 120) });
   }
   const sig = JSON.stringify(daily), memo = "lineDaily:" + today;
   try { if (localStorage.getItem("lineDailySig") === memo + sig) return; } catch (e) {}

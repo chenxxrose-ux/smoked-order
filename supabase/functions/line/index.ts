@@ -5,7 +5,7 @@
 // 驗證：網頁是公開的，所以用 tag —— 只有知道店家密碼的手機算得出來的 64 位雜湊；第一個設定的 tag 就是店家。
 //       LINE 打來的請求用 Channel secret 驗簽章。
 // Channel secret／access token 存在 line_cfg（只有這個程式讀得到）。
-// 3. 每天中午提醒：網頁把「哪天幾筆、幾點取、在哪、要不要秤」交過來（沒有客人名字電話），
+// 3. 每天中午提醒：網頁把「哪天、幾點取、在哪、要不要秤、稱呼、品項」交過來（不含電話地址，過了當天就刪），
 //    資料庫排程每天 12:00 打 op=tick（帶只存在資料庫裡的 cron_key），有訂單的日子才傳卡片到群組。
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -99,7 +99,7 @@ async function webhook(body: string, sig: string) {
 
 /* ===== 每天中午的訂單提醒 ===== */
 const SITE = "https://chenxxrose-ux.github.io/smoked-order/?today";
-type Slot = { t: string; m: string; w: number; d: number };   // 取貨時間、地點、要秤、外送
+type Slot = { t: string; m: string; w: number; d: number; n?: string; i?: string };   // 取貨時間、地點、要秤、外送、稱呼、品項（不含電話地址）
 const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
 function cleanDaily(x: unknown): Record<string, Slot[]> | null {
   if (!x || typeof x !== "object" || Array.isArray(x)) return null;
@@ -112,6 +112,8 @@ function cleanDaily(x: unknown): Record<string, Slot[]> | null {
       t: typeof v?.t === "string" && /^\d{1,2}:\d{2}$/.test(v.t) ? v.t : "",
       m: typeof v?.m === "string" ? v.m.slice(0, 12) : "",
       w: v?.w ? 1 : 0, d: v?.d ? 1 : 0,
+      n: typeof v?.n === "string" ? v.n.slice(0, 16) : "",
+      i: typeof v?.i === "string" ? v.i.slice(0, 120) : "",
     }));
   }
   return out;
@@ -124,25 +126,24 @@ const txt = (text: string, o: Record<string, unknown> = {}) => ({ type: "text", 
 function dailyCard(md: string, wd: string, slots: Slot[]) {
   const list = [...slots].sort((a, b) => (a.t || "99") < (b.t || "99") ? -1 : (a.t || "99") > (b.t || "99") ? 1 : 0);
   const weigh = list.filter(s => s.w).length;
-  // 同一時間、同一地點的合成一列：10:00　五福市場　2 筆
-  const rows: { t: string; m: string; n: number; w: number }[] = [];
-  for (const s of list) {
-    const m = s.d ? "外送" : (s.m || "");
-    const last = rows[rows.length - 1];
-    if (last && last.t === s.t && last.m === m) { last.n++; last.w += s.w; } else rows.push({ t: s.t, m, n: 1, w: s.w });
-  }
-  const shown = rows.slice(0, 12);
-  const rowBox = (r: typeof rows[number]) => ({
-    type: "box", layout: "horizontal", spacing: "md", contents: [
-      txt(r.t || "未定", { size: "md", color: r.t ? "#1E1A17" : "#8A847D", weight: "bold", flex: 0, wrap: false }),
-      txt(r.m || "　", { size: "md", color: "#1E1A17", flex: 1, wrap: true }),
-      txt(`${r.n} 筆${r.w ? `・${r.w} 待秤` : ""}`, { size: "sm", color: "#8A847D", flex: 0, align: "end", gravity: "center" }),
+  // 一筆一張小卡：上面「時間　稱呼　地點」，下面品項
+  const shown = list.slice(0, 15);
+  const rowBox = (r: Slot, k: number) => ({
+    type: "box", layout: "vertical", spacing: "xs", contents: [
+      ...(k ? [{ type: "separator", color: "#ECE9E4", margin: "none" }] : []),
+      { type: "box", layout: "horizontal", spacing: "md", ...(k ? { margin: "md" } : {}), contents: [
+        txt(r.t || "未定", { size: "md", color: r.t ? "#7B1F24" : "#8A847D", weight: "bold", flex: 0, wrap: false }),
+        txt(r.n || "訂單", { size: "md", color: "#1E1A17", weight: "bold", flex: 1, wrap: true }),
+        txt(r.d ? "外送" : (r.m || "　"), { size: "sm", color: "#8A847D", flex: 0, align: "end", gravity: "center", wrap: false }),
+      ] },
+      ...(r.i ? [txt(r.i, { size: "sm", color: "#4A4540", wrap: true })] : []),
+      ...(r.w ? [txt("待秤重", { size: "xs", color: "#8A5A00", weight: "bold" })] : []),
     ],
   });
   return {
     type: "flex", altText: `今天（${md}）有 ${list.length} 筆訂單`,
     contents: {
-      type: "bubble", size: "kilo",
+      type: "bubble", size: "mega",
       header: { type: "box", layout: "vertical", backgroundColor: "#F7F0E1", paddingAll: "20px", spacing: "sm", contents: [
         txt("訂單提醒", { size: "sm", color: "#9A6B17", weight: "bold" }),
         { type: "box", layout: "baseline", spacing: "sm", contents: [
@@ -153,9 +154,8 @@ function dailyCard(md: string, wd: string, slots: Slot[]) {
         txt(`${md}（${wd}）${weigh ? `・${weigh} 筆待秤` : ""}`, { size: "sm", color: "#8A847D" }),
       ] },
       body: { type: "box", layout: "vertical", paddingAll: "20px", spacing: "md", contents: [
-        txt("取貨時間", { size: "xs", color: "#8A847D" }),
         ...shown.map(rowBox),
-        ...(rows.length > shown.length ? [txt(`還有 ${rows.length - shown.length} 個時段，打開網頁看全部`, { size: "xs", color: "#8A847D", wrap: true })] : []),
+        ...(list.length > shown.length ? [txt(`還有 ${list.length - shown.length} 筆，打開網頁看全部`, { size: "xs", color: "#8A847D", wrap: true, margin: "md" })] : []),
       ] },
       footer: { type: "box", layout: "vertical", paddingAll: "16px", contents: [
         { type: "button", style: "primary", color: "#7B1F24", height: "sm", action: { type: "uri", label: "看今天的訂單", uri: SITE } },
@@ -178,7 +178,7 @@ async function tick(force = false, dry = false, probe: unknown = null) {
   try { daily = JSON.parse(cfg.daily || "{}"); } catch { /* 壞掉當沒有 */ }
   const slots = daily[ymd] || [];
   if (dry) {   // 只請 LINE 檢查卡片格式，不真的傳（沒訂單就用範例）
-    const sample: Slot[] = slots.length ? slots : [{ t: "10:00", m: "爸爸市場", w: 0, d: 0 }, { t: "14:30", m: "", w: 1, d: 1 }, { t: "", m: "媽媽市場", w: 0, d: 0 }];
+    const sample: Slot[] = slots.length ? slots : [{ t: "10:00", m: "爸爸市場", w: 0, d: 0, n: "王小姐", i: "雞肝 ×20、豬舌頭 一顆" }, { t: "14:30", m: "", w: 1, d: 1, n: "陳先生", i: "鴨腸 約$150、豆乾" }, { t: "", m: "媽媽市場", w: 0, d: 0, n: "客人（小姐）", i: "雞腳 一斤" }];
     const msg = probe && typeof probe === "object" ? { type: "flex", altText: "test", contents: probe } : dailyCard(md, wd, sample);   // probe：檢查網頁做的卡片
     const v = await line(cfg.token, "/message/validate/push", { method: "POST", body: JSON.stringify({ messages: [msg] }) });
     return { dry: true, ok: v.ok, status: v.status, detail: v.ok ? undefined : v.j, today: ymd, n: slots.length };
@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
   const sig = req.headers.get("x-line-signature");
   if (sig) { try { return await webhook(raw, sig); } catch (e) { console.error(e); return new Response("ok"); } }
 
-  if (raw.length > 60000) return json(req, { error: "too big" }, 413);
+  if (raw.length > 150000) return json(req, { error: "too big" }, 413);
   let b: any; try { b = JSON.parse(raw); } catch { return json(req, { error: "bad json" }, 400); }
   if (b.op === "tick") {   // 資料庫排程：key 只存在資料庫裡
     const k = (await getCfg()).cron_key;
