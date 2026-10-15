@@ -399,7 +399,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
-<script src="shared.js?v=5"></script>
+<script src="shared.js?v=6"></script>
 <script src="core.js?v=8"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
@@ -421,7 +421,7 @@ const LV_SMALL = [[2, "很多"], [1, "一點"]];
 const LEVEL_ITEMS = { "鴨腸": LV_SMALL, "口香糖": LV_SMALL, "大腸": LV_SMALL, "海帶": LV_SMALL, "豆乾": LV_SMALL, "滷味|鴨胗": LV_SMALL };   // 「類別|品名」只改那一類（煙燻鴨胗還是打數字）
 /* 用袋子算的品項：每種袋子分開打幾個 */
 const BAG_PARTS = ["一包", "半包", "一斤手提", "兩斤手提", "兩斤透明"];
-const BAG_ITEMS = { "雞腳": BAG_PARTS, "鴨翅": BAG_PARTS, "雞屁股": BAG_PARTS, "鴨腳": BAG_PARTS };
+const BAG_ITEMS = { "雞腳": BAG_PARTS, "鴨翅": BAG_PARTS };
 const COUNT_PARTS = { "豬頭皮": ["塊", "條", "件"], "米血": ["包", "片"] };   // 分開記幾塊、幾條、幾件
 
 /* 要記的格子：key 用「品名|規格」，以後調整菜單也不會亂掉 */
