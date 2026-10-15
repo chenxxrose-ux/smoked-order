@@ -28,6 +28,8 @@ const MENU = [
     { name: "雞腿",   opts: [{ label: "一支", price: 0 }] },
     { name: "三層肉", opts: [{ label: "一塊", price: 0 }] },   // 新品項一律加在最後，記住的單價才不會亂掉
     { name: "黑輪片", opts: [{ label: "一片", price: 0 }] },
+    { name: "雞屁股", type: "money" },                  // 和雞腳一樣：客人說要買多少錢，剩貨用袋子記
+    { name: "鴨腳",   type: "money" },
   ]},
   { cat: "滷味", items: [
     { name: "米血",     opts: [{ label: "一片", price: 0 }] },
