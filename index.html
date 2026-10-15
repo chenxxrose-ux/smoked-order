@@ -511,7 +511,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=4"></script>
-<script src="core.js?v=7"></script>
+<script src="core.js?v=8"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -741,6 +741,34 @@ function buildText(o, opts = {}){
   if (o.st === "cancel" && o.refund) L.push(`退款　已收 $${paidOf(o)}・${REFUND[o.refund]}`);
   return L.join("\n");
 }
+/* LINE 卡片版的訂單（內容和 buildText 一樣，排成收據樣子） */
+function orderCard(o, opts = {}){
+  const K = LineCard, C = K.C, total = calcTotal(o.items);
+  const when = o.date ? `${fmtDate(o.date)}${o.ptime ? " " + o.ptime : ""} 取` : "取貨日未定";
+  const body = [
+    K.t(o.name || "客人", { size: "xl", weight: "bold", margin: "md" }),
+    o.phone ? K.t(o.phone, { size: "md", color: C.blue, action: { type: "uri", label: "打電話", uri: "tel:" + o.phone } })
+      : K.t(o.walk ? "現場客" : "電話未留", { size: "sm", color: C.sub }),
+  ];
+  if (o.st) body.push(K.t(stLabel(o), { size: "sm", weight: "bold", color: o.st === "cancel" ? C.red : "#2F6B3D", margin: "sm" }));
+  body.push(K.sep());
+  if (o.market) body.push(K.kv("地點", o.market));
+  if (o.addr) body.push(K.kv("地址", opts.fullPhone ? o.addr : maskAddr(o.addr)));
+  if (o.odate) body.push(K.kv("訂購", fmtDate(o.odate)));
+  body.push(K.label("品項"));
+  o.items.forEach(l => {
+    const name = l.sub !== null && l.weigh ? (l.short || l.item).replace(/ 約\$\d+/, "") : (l.short || l.item);
+    body.push(K.row(name, l.sub === null ? (l.weigh ? "待秤" : "未定價") : "$" + l.sub, { rc: l.sub === null ? C.gold : C.ink }));
+  });
+  if (o.prep) { body.push(K.label("處理")); body.push(K.t(prepText(o.prep), { size: "md", margin: "sm" })); }
+  if (o.memo) { body.push(K.label("備註")); body.push(K.t(o.memo, { size: "md", margin: "sm" })); }
+  body.push(K.sep());
+  body.push(K.row("合計", "$" + total, { margin: "lg", size: "lg", lw: true, rw: true }));
+  const note = totalNote(o.items); if (note) body.push(K.t(note.replace(/^＋/, ""), { size: "xs", color: C.gold, align: "end" }));
+  if (o.pay) { const pt = payText(o); body.push(K.kv("付款", pt, { c: pt === "未付款" ? C.red : C.ink, bold: true })); }
+  if (o.st === "cancel" && o.refund) body.push(K.kv("退款", `已收 $${paidOf(o)}・${REFUND[o.refund]}`));
+  return { alt: `訂單｜${o.name || "客人"}　${when}`, contents: K.bubble(K.band("o", "訂單", when, o.market || ""), body) };
+}
 /* 金額一律是 0 以上的整數（負數、亂打都當 0） */
 const money = v => { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(n, 9999999) : 0; };
 function calcTotal(items){ return items.reduce((s, l) => s + (l.sub || 0), 0); }
@@ -809,7 +837,7 @@ function bindShare(root, o){
   root.querySelector('[data-act="share"]').onclick = e => use(shareText, e.currentTarget);
   root.querySelector('[data-act="copy"]').onclick = e => use(copyText, e.currentTarget);
   root.querySelector('[data-act="line"]').onclick = e => use(async (t, b) => {
-    const r = await LineBot.send(t, b);
+    const r = await LineBot.send(t, b, orderCard(o, { fullPhone: full }));
     if (r) toast(`已傳到 LINE「${r.group}」${LineBot.quotaText(r.quota) ? "，" + LineBot.quotaText(r.quota) : ""}`);
   }, e.currentTarget);
   paint();
