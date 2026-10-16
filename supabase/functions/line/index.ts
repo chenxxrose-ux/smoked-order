@@ -5,8 +5,9 @@
 // 驗證：網頁是公開的，所以用 tag —— 只有知道店家密碼的手機算得出來的 64 位雜湊；第一個設定的 tag 就是店家。
 //       LINE 打來的請求用 Channel secret 驗簽章。
 // Channel secret／access token 存在 line_cfg（只有這個程式讀得到）。
-// 3. 每天中午提醒：網頁把「哪天、幾點取、在哪、要不要秤、稱呼、品項」交過來（不含電話地址，過了當天就刪），
-//    資料庫排程每天 12:00 打 op=tick（帶只存在資料庫裡的 cron_key），有訂單的日子才傳卡片到群組。
+// 3. 每天提醒：網頁把「哪天、幾點取、在哪、要不要秤、稱呼、品項」交過來（不含電話地址，過了當天就刪），
+//    資料庫排程打 op=tick（帶只存在資料庫裡的 cron_key），有訂單才傳卡片到群組：
+//    凌晨 3:00（slot=early）只提醒「早市」的訂單；中午 12:00 提醒其他市場（早市那時已經提醒過）。
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ORIGINS = ["https://chenxxrose-ux.github.io"];
@@ -97,7 +98,7 @@ async function webhook(body: string, sig: string) {
   return new Response("ok");
 }
 
-/* ===== 每天中午的訂單提醒 ===== */
+/* ===== 每天的訂單提醒（凌晨 3 點早市、中午其他市場） ===== */
 const SITE = "https://chenxxrose-ux.github.io/smoked-order/?today&openExternalBrowser=1";   // 用 Safari 打開：LINE 內建瀏覽器記不住密碼，每次都要重輸
 type Slot = { t: string; m: string; w: number; d: number; n?: string; i?: string };   // 取貨時間、地點、要秤、外送、稱呼、品項（不含電話地址）
 const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
@@ -123,7 +124,8 @@ function twToday() {
   return { ymd: t.toISOString().slice(0, 10), wd: "日一二三四五六"[t.getUTCDay()], md: `${t.getUTCMonth() + 1}/${t.getUTCDate()}` };
 }
 const txt = (text: string, o: Record<string, unknown> = {}) => ({ type: "text", text, ...o });
-function dailyCard(md: string, wd: string, slots: Slot[]) {
+const EARLY = "早市";
+function dailyCard(md: string, wd: string, slots: Slot[], early = false) {
   const list = [...slots].sort((a, b) => (a.t || "99") < (b.t || "99") ? -1 : (a.t || "99") > (b.t || "99") ? 1 : 0);
   const weigh = list.filter(s => s.w).length;
   // 一筆一張小卡：上面「時間　稱呼　地點」，下面品項
@@ -141,13 +143,13 @@ function dailyCard(md: string, wd: string, slots: Slot[]) {
     ],
   });
   return {
-    type: "flex", altText: `今天（${md}）有 ${list.length} 筆訂單`,
+    type: "flex", altText: `今天（${md}）${early ? "早市" : ""}有 ${list.length} 筆訂單`,
     contents: {
       type: "bubble", size: "mega",
       header: { type: "box", layout: "vertical", backgroundColor: "#F7F0E1", paddingAll: "20px", spacing: "sm", contents: [
-        txt("訂單提醒", { size: "sm", color: "#9A6B17", weight: "bold" }),
+        txt(early ? "早市訂單提醒" : "訂單提醒", { size: "sm", color: "#9A6B17", weight: "bold" }),
         { type: "box", layout: "baseline", spacing: "sm", contents: [
-          txt("今天", { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
+          txt(early ? "今天早市" : "今天", { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
           txt(String(list.length), { size: "3xl", color: "#7B1F24", weight: "bold", flex: 0 }),
           txt("筆訂單", { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
         ] },
@@ -169,24 +171,25 @@ async function retryKey(s: string) {
   const x = [...h].map(b => b.toString(16).padStart(2, "0")).join("");
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
 }
-async function tick(force = false, dry = false, probe: unknown = null) {
+async function tick(force = false, dry = false, probe: unknown = null, early = false) {
   const cfg = await getCfg();
   const { ymd, wd, md } = twToday();
   if (!cfg.token || !cfg.group) return { sent: false, why: "no group" };
-  if (!force && cfg.tick_last === ymd) return { sent: false, why: "done" };
+  const lastKey = early ? "tick_early_last" : "tick_last";
+  if (!force && cfg[lastKey] === ymd) return { sent: false, why: "done" };
   let daily: Record<string, Slot[]> = {};
   try { daily = JSON.parse(cfg.daily || "{}"); } catch { /* 壞掉當沒有 */ }
-  const slots = daily[ymd] || [];
+  const slots = (daily[ymd] || []).filter(s => early ? s.m === EARLY : s.m !== EARLY);
   if (dry) {   // 只請 LINE 檢查卡片格式，不真的傳（沒訂單就用範例）
     const sample: Slot[] = slots.length ? slots : [{ t: "10:00", m: "爸爸市場", w: 0, d: 0, n: "王小姐", i: "雞肝 ×20、豬舌頭 一顆" }, { t: "14:30", m: "", w: 1, d: 1, n: "陳先生", i: "鴨腸 約$150、豆乾" }, { t: "", m: "媽媽市場", w: 0, d: 0, n: "客人（小姐）", i: "雞腳 一斤" }];
-    const msg = probe && typeof probe === "object" ? { type: "flex", altText: "test", contents: probe } : dailyCard(md, wd, sample);   // probe：檢查網頁做的卡片
+    const msg = probe && typeof probe === "object" ? { type: "flex", altText: "test", contents: probe } : dailyCard(md, wd, sample, early);   // probe：檢查網頁做的卡片
     const v = await line(cfg.token, "/message/validate/push", { method: "POST", body: JSON.stringify({ messages: [msg] }) });
     return { dry: true, ok: v.ok, status: v.status, detail: v.ok ? undefined : v.j, today: ymd, n: slots.length };
   }
-  await setCfg({ tick_last: ymd });
+  await setCfg({ [lastKey]: ymd });
   if (!slots.length) return { sent: false, why: "no orders" };   // 沒訂單的日子不傳，省免費則數
-  const r = await line(cfg.token, "/message/push", { method: "POST", body: JSON.stringify({ to: cfg.group, messages: [dailyCard(md, wd, slots)] }),
-    headers: { "X-Line-Retry-Key": await retryKey("tick/" + ymd + (force ? "/" + Date.now() : "")) } });
+  const r = await line(cfg.token, "/message/push", { method: "POST", body: JSON.stringify({ to: cfg.group, messages: [dailyCard(md, wd, slots, early)] }),
+    headers: { "X-Line-Retry-Key": await retryKey((early ? "early/" : "tick/") + ymd + (force ? "/" + Date.now() : "")) } });
   if (!r.ok && r.status !== 409) { console.error("tick", r.status, r.j); return { sent: false, why: "line " + r.status }; }
   return { sent: true, n: slots.length };
 }
@@ -205,7 +208,7 @@ Deno.serve(async (req) => {
   if (b.op === "tick") {   // 資料庫排程：key 只存在資料庫裡
     const k = (await getCfg()).cron_key;
     if (!k || typeof b.key !== "string" || b.key !== k) return json(req, { error: "no" }, 403);
-    try { return json(req, await tick(!!b.force, !!b.dry, b.dry ? b.probe : null)); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
+    try { return json(req, await tick(!!b.force, !!b.dry, b.dry ? b.probe : null, b.slot === "early")); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
   }
   if (!isTag(b.tag)) return json(req, { error: "bad tag" }, 400);
   try {
