@@ -9,7 +9,7 @@
    ===================================================== */
 const MENU = [
   { cat: "煙燻", items: [
-    { name: "雞肉",   weigh: true, opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }] },
+    { name: "公雞",   weigh: true, opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }] },   // 原本的「雞肉」（記住的單價沿用）
     { name: "鴨肉",   opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }, { label: "前半", price: 0 }, { label: "後半", price: 0 }] },
     { name: "鴨頭",   opts: [{ label: "一支", price: 0 }] },
     { name: "鴨翅",   opts: [{ label: "一支", price: 0 }] },
@@ -30,6 +30,7 @@ const MENU = [
     { name: "黑輪片", opts: [{ label: "一片", price: 0 }] },
     { name: "雞屁股", opts: [{ label: "一份（4顆）", price: 0 }] },
     { name: "鴨腳",   opts: [{ label: "一支", price: 0 }] },
+    { name: "母雞",   near: "公雞", weigh: true, opts: [{ label: "一隻", price: 0 }, { label: "半隻", price: 0 }] },
   ]},
   { cat: "滷味", items: [
     { name: "米血",     opts: [{ label: "一片", price: 0 }] },
@@ -68,10 +69,17 @@ const ICON = (() => {
 function sortNames(arr, name){
   const g = {};
   arr.forEach((x, i) => { const n = name(x), f = n[0]; if (!g[f]) g[f] = { min: n.length, first: i }; else g[f].min = Math.min(g[f].min, n.length); });
-  return arr.map((x, i) => [x, i]).sort((a, b) => {
+  const out = arr.map((x, i) => [x, i]).sort((a, b) => {
     const na = name(a[0]), nb = name(b[0]), ga = g[na[0]], gb = g[nb[0]];
     return ga.min - gb.min || ga.first - gb.first || na.length - nb.length || a[1] - b[1];
   });
+  // 品項有 near：排在那個品項的正後面（例：母雞跟在公雞後面）
+  out.filter(e => e[0] && e[0].near).forEach(e => {
+    out.splice(out.indexOf(e), 1);
+    const j = out.findIndex(o => name(o[0]) === e[0].near);
+    out.splice(j < 0 ? out.length : j + 1, 0, e);
+  });
+  return out;
 }
 
 /* 防注入：任何要放進 HTML 的文字都先轉義 */
