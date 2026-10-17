@@ -161,6 +161,16 @@
   .actions{display:flex;gap:10px;margin-top:12px}
   .actions .btn{flex:1;min-width:0}
   .note{font-size:13px;color:var(--sub);margin:0 0 12px}
+  /* 打字帶入 */
+  .typein{display:flex;align-items:center;gap:12px;width:100%;margin-top:14px;padding:14px;border:none;border-radius:var(--r);background:var(--card);text-align:left;cursor:pointer}
+  .typein .ic{flex:none;width:24px;height:24px;color:var(--soy)}
+  .typein b{display:block;font-size:16px;font-weight:600}
+  .typein small{display:block;font-size:13px;color:var(--sub);margin-top:2px}
+  .typein .go{margin-left:auto;transform:rotate(-90deg);color:var(--sub);width:20px;height:20px}
+  .ti-box{display:block;width:100%;box-sizing:border-box;min-height:132px;background:var(--card);border-radius:var(--r);padding:12px 14px;font-size:17px;line-height:1.5}
+  .ti-tip{font-size:13px;color:var(--sub);line-height:1.55;margin:8px 4px 14px}
+  .ti-tip b{color:var(--ink);font-weight:600}
+  .rows .row.miss span:last-child{color:var(--gold)}
 
   .order{background:var(--card);border-radius:var(--r);padding:14px;margin-bottom:12px}
   .order.pending{box-shadow:inset 3px 0 0 var(--gold)}
@@ -427,6 +437,9 @@
 <div class="net-bar" id="netBar" hidden>目前離線：可以繼續接單，訂單先存在這支手機，有網路後自動同步</div>
 <div class="edit-bar" id="editBar" hidden>正在修改 <b id="editName"></b> 的訂單 <button type="button" class="link-btn" id="cancelEdit">取消修改</button></div>
 <main>
+  <button type="button" class="typein" id="typeIn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+    <span><b>打字帶入</b><small>手寫、用講的、貼上訊息都可以</small></span>
+    <svg class="ic go" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
   <h2 class="sec">取貨</h2>
   <section class="card">
     <div class="mk-warn" id="mkWarn">請先選擇取貨市場</div>
@@ -513,6 +526,7 @@
 
 <script src="shared.js?v=7"></script>
 <script src="core.js?v=9"></script>
+<script src="parse.js?v=1"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -2775,6 +2789,90 @@ document.getElementById("marketSeg").addEventListener("click", e => {
     `今天 ${d.getMonth() + 1}/${d.getDate()}（星期${WK[d.getDay()]}）` +
     `<small>${lunTxt}${tag ? "・" + tag : ""}</small>`;
 })();
+
+/* ===== 打字帶入：打一段字，自動填好市場、時間、客人、品項（只在這支手機上算） ===== */
+let tiText = "";
+function tiParse(){ return parseOrderText(tiText, MENU, new Date()); }
+function tiRows(r){
+  const rows = [];
+  const d = r.date ? `${r.date.getMonth() + 1}/${r.date.getDate()}（${WK[r.date.getDay()]}）` : "";
+  if (r.market || d || r.time) rows.push(["取貨", [r.market, d, r.time].filter(Boolean).join("・")]);
+  const mk = r.market || market, [a, b] = HOURS[mk] || [6, 20], hm = r.time ? Number(r.time.slice(0, 2)) + Number(r.time.slice(3)) / 60 : 0;
+  if (r.time && (hm < a || hm > b)) rows.push(["時間", `${r.time} 不在營業時間，要重選`, 1]);
+  if (r.addr) rows.push(["地址", r.addr]);
+  const who = (r.surname || "") + (r.title || "");
+  if (who || r.phone) rows.push(["客人", [who, r.phone].filter(Boolean).join("・")]);
+  if (r.pay) rows.push(["付款", r.pay === "full" ? "已付清" : `訂金 $${r.deposit}`]);
+  if (r.prep) rows.push(["處理", Object.keys(r.prep).map(k => ({ cut: "不切", pepper: "不加胡椒", oil: "不加香油", sauce: "不加醬油膏" })[k]).join("、")]);
+  return rows;
+}
+function tiItemText(l){
+  const it = MENU[l.si].items[l.ii];
+  if (l.amount !== undefined) return [l.name, l.amount ? `$${l.amount}` : "金額未填"];
+  const lab = it.opts && it.opts.length > 1 ? it.opts[l.oi].label : "";
+  return [l.name, `${lab ? lab + " " : ""}× ${l.q}${it.type === "piece" ? " 塊" : ""}`];
+}
+function tiPaint(){
+  const r = tiParse(), out = $id("tiOut"), go = $id("tiGo");
+  if (!tiText.trim()) { out.innerHTML = ""; go.disabled = true; return; }
+  const head = tiRows(r), items = r.items.map(tiItemText);
+  const row = ([a, b], miss) => `<div class="row${miss ? " miss" : ""}"><span>${escapeHtml(a)}</span><span>${escapeHtml(b)}</span></div>`;
+  out.innerHTML = (head.length ? `<p class="prep-cat">看到的資料</p><div class="rows">${head.map(x => row(x, x[2])).join("")}</div>` : "")
+    + (items.length ? `<p class="prep-cat">品項 ${items.length} 項</p><div class="rows items">${items.map(x => row(x)).join("")}</div>` : "")
+    + (r.left.length ? `<p class="prep-cat">沒看懂的字（會放進備註）</p><div class="rows"><div class="row miss"><span>備註</span><span>${escapeHtml(r.left.join("、"))}</span></div></div>` : "")
+    + (!head.length && !items.length ? `<p class="note">還沒看到品項或時間。品項名稱寫完整一點，例如「公雞半隻」「鴨頭3支」。</p>` : "");
+  go.disabled = !head.length && !items.length;
+}
+function tiApply(r){
+  if (r.market) { market = r.market; document.querySelectorAll("#marketSeg button").forEach(x => x.classList.toggle("on", x.dataset.m === market)); paintMarket(); }
+  if (r.addr) { $id("addr").value = r.addr; paintAddr(); showErr("addrErr", false); }
+  if (r.date) { setDate(ymd(r.date)); showErr("dateErr", false); }
+  let late = "";
+  if (r.time) { const sel = $id("ptime"); sel.value = r.time; if (sel.value !== r.time) { sel.value = ""; late = `${r.time} 不在${market || ""}的營業時間，請重選時間`; } }
+  if (r.surname || r.title || r.phone) setWalk(false);
+  if (r.surname) $id("surname").value = cleanSurname(r.surname);
+  if (r.title) { title = r.title; document.querySelectorAll("#titleSeg button").forEach(x => { const on = x.dataset.t === title; x.classList.toggle("on", on); x.setAttribute("aria-checked", on); }); }
+  if (r.phone) $id("phone").value = r.phone;
+  if (r.pay) {
+    pay = r.pay; document.querySelectorAll("#paySeg button").forEach(x => x.classList.toggle("on", x.dataset.pay === pay));
+    $id("depositBox").style.display = pay === "deposit" ? "block" : "none"; if (r.deposit) depInput.value = r.deposit;
+  }
+  if (r.prep) for (const [g, v] of Object.entries(r.prep)) { prep[g] = v; document.querySelectorAll(`.seg[data-group="${g}"] button`).forEach(x => x.classList.toggle("on", x.dataset.v === v)); }
+  paintOpt();
+  const seen = {};
+  for (const l of r.items) {
+    const it = MENU[l.si].items[l.ii];
+    if (l.amount !== undefined) {
+      const k = `${l.si}-${l.ii}-amt`; want[k] = true; if (l.amount) amounts[k] = l.amount;
+      const inp = document.querySelector(`#menu [data-amt="${k}"]`); if (inp) inp.value = amounts[k] || "";
+      const b = document.querySelector(`#menu [data-want="${k}"]`); if (b) b.classList.add("on");
+    } else {
+      const k = it.type === "piece" ? `${l.si}-${l.ii}-pc` : `${l.si}-${l.ii}-${l.oi}`;
+      qty[k] = (seen[k] ? qty[k] : 0) + l.q; seen[k] = 1;
+      const st = document.getElementById("s-" + k); if (st) { setQ(st, qty[k]); st.classList.add("on"); }
+    }
+  }
+  if (r.left.length) { const m = $id("memo"), add = r.left.join("、"); if (!m.value.includes(add)) m.value = m.value ? m.value + "、" + add : add; }
+  update();
+  modal.classList.remove("show");
+  tiText = "";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  toast(late || `已帶入${r.items.length ? ` ${r.items.length} 項` : ""}，請檢查一下再按「預覽訂單」`, !!late);
+}
+$id("typeIn").onclick = () => {
+  sheet.innerHTML = `<h3>打字帶入</h3>
+    <textarea class="ti-box" id="tiIn" rows="5" placeholder="例：明天10點半 爸爸市場 王小姐 0912345678 公雞半隻 鴨頭3支 雞腳100元 米血5" aria-label="訂單文字"></textarea>
+    <p class="ti-tip">長輩可以把鍵盤切到<b>手寫</b>，或按鍵盤上的<b>麥克風</b>用講的。紙本訂單可以拍照，在照片上長按文字複製，再貼到這裡。</p>
+    <div id="tiOut"></div>
+    <div class="actions"><button type="button" class="btn ghost" id="tiNo">取消</button><button type="button" class="btn" id="tiGo" disabled>帶入</button></div>`;
+  const box = $id("tiIn"); box.value = tiText;
+  let t = null;
+  box.addEventListener("input", () => { tiText = box.value; clearTimeout(t); t = setTimeout(tiPaint, 250); });
+  $id("tiNo").onclick = () => modal.classList.remove("show");
+  $id("tiGo").onclick = () => { tiText = box.value; tiApply(tiParse()); };
+  modal.classList.add("show"); tiPaint();
+  setTimeout(() => box.focus(), 120);
+};
 
 /* 清空表單準備下一筆（和重新整理後的畫面一樣；單價會保留） */
 function resetForm(){
