@@ -171,6 +171,7 @@
   .ti-tip{font-size:13px;color:var(--sub);line-height:1.55;margin:8px 4px 14px}
   .ti-tip b{color:var(--ink);font-weight:600}
   .rows .row.miss span:last-child{color:var(--gold)}
+  .ti-g{display:block;font-size:13px;color:var(--gold);margin-top:2px}
 
   .order{background:var(--card);border-radius:var(--r);padding:14px;margin-bottom:12px}
   .order.pending{box-shadow:inset 3px 0 0 var(--gold)}
@@ -526,7 +527,7 @@
 
 <script src="shared.js?v=7"></script>
 <script src="core.js?v=9"></script>
-<script src="parse.js?v=1"></script>
+<script src="parse.js?v=2"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -2815,10 +2816,12 @@ function tiItemText(l){
 function tiPaint(){
   const r = tiParse(), out = $id("tiOut"), go = $id("tiGo");
   if (!tiText.trim()) { out.innerHTML = ""; go.disabled = true; return; }
-  const head = tiRows(r), items = r.items.map(tiItemText);
+  const head = tiRows(r), items = r.items.map(l => [...tiItemText(l), l.guess]);
   const row = ([a, b], miss) => `<div class="row${miss ? " miss" : ""}"><span>${escapeHtml(a)}</span><span>${escapeHtml(b)}</span></div>`;
+  // 猜的品項：名字下面寫原本打的字，黃字提醒檢查
+  const irow = ([a, b, g]) => `<div class="row${g ? " miss" : ""}"><span>${escapeHtml(a)}${g ? `<small class="ti-g">寫的是「${escapeHtml(g)}」，請確認</small>` : ""}</span><span>${escapeHtml(b)}</span></div>`;
   out.innerHTML = (head.length ? `<p class="prep-cat">看到的資料</p><div class="rows">${head.map(x => row(x, x[2])).join("")}</div>` : "")
-    + (items.length ? `<p class="prep-cat">品項 ${items.length} 項</p><div class="rows items">${items.map(x => row(x)).join("")}</div>` : "")
+    + (items.length ? `<p class="prep-cat">品項 ${items.length} 項</p><div class="rows items">${items.map(irow).join("")}</div>` : "")
     + (r.left.length ? `<p class="prep-cat">沒看懂的字（會放進備註）</p><div class="rows"><div class="row miss"><span>備註</span><span>${escapeHtml(r.left.join("、"))}</span></div></div>` : "")
     + (!head.length && !items.length ? `<p class="note">還沒看到品項或時間。品項名稱寫完整一點，例如「公雞半隻」「鴨頭3支」。</p>` : "");
   go.disabled = !head.length && !items.length;
