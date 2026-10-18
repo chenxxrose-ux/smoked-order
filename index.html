@@ -594,7 +594,7 @@ function showPrices(focusKey){
 
 function render(){
   const menu = document.getElementById("menu");
-  // 滷味直接打數字（量比較多，按＋－太慢）；其他照舊用＋－
+  // 數量一律直接打數字（使用者覺得按＋－太慢）
   const stepper = (key, typed, label) => typed ? `<div class="stepper typed" id="s-${key}">
       <input class="q" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="999" enterkeyhint="done" data-qk="${key}" placeholder="0" aria-label="${label}幾個"></div>`
     : `<div class="stepper" id="s-${key}">
@@ -626,7 +626,7 @@ function render(){
         html += `<div class="it one" data-item="${it.name}"><div class="it-main">
             <span class="it-name">${it.name}</span><span class="spec-s">按塊</span>
             <button type="button" class="pr" data-pr="${key}" aria-label="設定一塊大約多少錢"></button></div>
-          ${stepper(key)}</div>`;
+          ${stepper(key, true, it.name)}</div>`;
       } else {
         const rows = it.opts.map((o, oi) => {
           const key = `${si}-${ii}-${oi}`;
@@ -637,7 +637,7 @@ function render(){
           return `<div class="it one${multi && oi ? " sub" : ""}" data-item="${it.name}"><div class="it-main">
               <span class="it-name">${multi && oi ? "" : it.name}</span><span class="${multi ? "spec-m" : "spec-s"}">${o.label.replace(/（.*?）/, "")}</span>
               <button type="button" class="pr" data-pr="${key}" data-note="${(o.label.match(/（(.*?)）/) || [])[1] || ""}"${it.weigh ? ' data-w="1"' : ""} aria-label="設定單價"></button></div>
-            ${stepper(key, sec.cat === "滷味", it.name + (multi ? o.label : ""))}</div>`;
+            ${stepper(key, true, it.name + (multi ? o.label : ""))}</div>`;
         }).join("");
         html += it.opts.length > 1 ? `<div class="grp g1">${rows}</div>` : rows;
       }
