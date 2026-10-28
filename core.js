@@ -4,7 +4,7 @@
    要先載入 shared.js（品項清單、圖示、escapeHtml、ymd、WK、FB）。
    ===================================================== */
 "use strict";
-const CORE_VERSION = 5;
+const CORE_VERSION = 6;
 
 /* ===== 基本工具 ===== */
 const te = new TextEncoder(), td = new TextDecoder();
@@ -728,6 +728,77 @@ const LineCard = {
   bubble(band, body){
     return { type: "bubble", size: "mega", header: { ...band }, body: { type: "box", layout: "vertical", paddingAll: "18px", paddingTop: "8px", contents: body } };
   },
+
+  /* ===== 小卡存成圖片：把上面的 LINE 卡片畫成 HTML，再拍成 PNG，用手機的分享選單傳（用自己的 LINE 傳，不扣機器人額度） ===== */
+  PX: { none: 0, xs: 2, sm: 4, md: 8, lg: 12, xl: 16, xxl: 20 },
+  FS: { xxs: 11, xs: 13, sm: 14, md: 16, lg: 19, xl: 22, xxl: 29, "3xl": 35, "4xl": 48, "5xl": 74 },
+  px(v){ return v == null ? 0 : typeof v === "number" ? v : /px$/.test(v) ? parseFloat(v) : (this.PX[v] ?? 0); },
+  html(n, dir){
+    const st = [], m = this.px(n.margin);
+    if (m) st.push(dir === "row" ? `margin-left:${m}px` : `margin-top:${m}px`);
+    const flex = n.flex != null ? n.flex : dir === "row" && n.type !== "separator" ? 1 : 0;
+    st.push(flex ? `flex:${flex} 1 0;min-width:0` : "flex:0 0 auto");
+    if (n.type === "filler") return `<div style="flex:1 1 0"></div>`;
+    if (n.type === "separator") return `<div style="${dir === "row" ? `width:1px;align-self:stretch;margin-left:${m}px` : `height:1px;margin-top:${m}px`};background:${n.color || "#ECE9E4"};flex:none"></div>`;
+    if (n.type === "text") {
+      st.push(`font-size:${this.FS[n.size || "md"] || 16}px`, `color:${n.color || "#1E1A17"}`, `line-height:1.4`);
+      if (n.weight === "bold") st.push("font-weight:700");
+      if (n.align) st.push(`text-align:${n.align === "end" ? "right" : n.align === "center" ? "center" : "left"}`);
+      st.push(n.wrap ? "white-space:pre-wrap;word-break:break-word" : "white-space:nowrap;overflow:hidden;text-overflow:ellipsis");
+      if (n.gravity) st.push(`align-self:${n.gravity === "center" ? "center" : n.gravity === "bottom" ? "flex-end" : "flex-start"}`);
+      return `<div style="${st.join(";")}">${escapeHtml(n.text)}</div>`;
+    }
+    if (n.type !== "box") return "";
+    const d = n.layout === "vertical" ? "column" : "row";
+    st.push("display:flex", `flex-direction:${d}`, "box-sizing:border-box");
+    if (n.layout === "baseline") st.push("align-items:baseline");
+    if (n.backgroundColor) st.push(`background:${n.backgroundColor}`);
+    if (n.cornerRadius) st.push(`border-radius:${this.px(n.cornerRadius)}px`);
+    const pa = this.px(n.paddingAll);
+    st.push(`padding:${n.paddingTop != null ? this.px(n.paddingTop) : pa}px ${n.paddingEnd != null ? this.px(n.paddingEnd) : pa}px ${n.paddingBottom != null ? this.px(n.paddingBottom) : pa}px ${n.paddingStart != null ? this.px(n.paddingStart) : pa}px`);
+    if (n.justifyContent) st.push(`justify-content:${n.justifyContent}`);
+    if (n.alignItems) st.push(`align-items:${n.alignItems}`);
+    const gap = this.px(n.spacing);
+    const kids = (n.contents || []).map((c, i) => this.html(i && gap && c.margin == null ? { ...c, margin: gap + "px" } : c, d)).join("");
+    return `<div style="${st.join(";")}">${kids}</div>`;
+  },
+  async image(card){
+    if (!window.html2canvas) await new Promise((ok, no) => {
+      const sc = document.createElement("script");
+      sc.src = "html2canvas.min.js";   // html2canvas 1.4.1（MIT），放在網站裡，不用另外連外部網站
+      sc.onload = ok; sc.onerror = () => no(new Error("offline")); document.head.appendChild(sc);
+    });
+    const b = card.contents, wrap = document.createElement("div");
+    wrap.style.cssText = "position:fixed;left:-10000px;top:0;width:340px;padding:12px;background:#F4F1EC;font-family:-apple-system,BlinkMacSystemFont,'PingFang TC','Noto Sans TC','Microsoft JhengHei',sans-serif";
+    wrap.innerHTML = `<div style="background:#fff;border-radius:18px;overflow:hidden">${["header", "body", "footer"].filter(k => b[k] && k !== "footer").map(k => this.html({ ...b[k], flex: 0 }, "column")).join("")}</div>`;
+    document.body.appendChild(wrap);
+    try {
+      const cv = await window.html2canvas(wrap, { scale: 3, backgroundColor: "#F4F1EC", logging: false });
+      return await new Promise(r => cv.toBlob(r, "image/png"));
+    } finally { wrap.remove(); }
+  },
+  /* 分享小卡圖片：回傳 true（交給分享選單）、false（取消或失敗） */
+  async shareImage(card, btn, name){
+    const old = btn ? btn.innerHTML : "";
+    if (btn) { btn.disabled = true; btn.textContent = "製作圖片中…"; }
+    try {
+      const blob = await this.image(card);
+      if (!blob) throw new Error("image");
+      const file = new File([blob], (name || "小卡") + ".png", { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); return true; }
+        catch (e) { if (e.name === "AbortError") { toast("已取消，沒有分享"); return false; } throw e; }
+      }
+      // 不能直接分享檔案（有些安卓、電腦）：打開圖片，長按存下來再傳
+      const url = URL.createObjectURL(blob), w = window.open(url, "_blank");
+      if (!w) { const a = document.createElement("a"); a.href = url; a.download = file.name; a.click(); }
+      toast("圖片已打開，長按存起來，再到 LINE 傳");
+      return true;
+    } catch (e) {
+      toast(e && e.message === "offline" ? "要有網路才能做圖片，請連上網路再試" : "圖片做不出來，請改用「傳到 LINE 群組」或分享文字", true);
+      return false;
+    } finally { if (btn) { btn.disabled = false; btn.innerHTML = old; } }
+  },
 };
 
 const LineBot = {
@@ -748,6 +819,9 @@ const LineBot = {
   },
   msg(e){ const c = e && e.message; return LINE_ERR[c] || (c === "offline" ? "連不上網路，請確認網路後再試" : c === "no room" ? "請先輸入店家密碼開啟同步，才能用 LINE 機器人" : "LINE 傳送失敗，請再試一次"); },
   quotaText(q){ return q && q.left != null ? `本月免費訊息還剩 ${q.left} 則` : ""; },
+  /* 傳完的提示：額度用完時卡片會先存在機器人那裡 */
+  doneText(r){ return r.queued ? "LINE 這個月的免費則數用完了，卡片先存著：在群組打「卡片」就會出現（不扣額度）"
+    : `已傳到 LINE「${r.group}」${this.quotaText(r.quota) ? "，" + this.quotaText(r.quota) : ""}`; },
 
   /* 第一次：貼上 Channel secret、access token */
   setupDialog(){
@@ -811,7 +885,7 @@ const LineBot = {
       if (btn) btn.textContent = "傳送中…";
       const r = await this.call({ op: "send", text, id: crypto.randomUUID ? crypto.randomUUID() : undefined,
         ...(card ? { flex: card.contents, alt: card.alt } : {}) });
-      return { group: s.group, quota: r.quota };
+      return { group: s.group, quota: r.quota, queued: !!r.queued };
     } catch (e) {
       toast(this.msg(e), true);
       return null;

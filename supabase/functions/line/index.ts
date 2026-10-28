@@ -1,6 +1,6 @@
 // 煙燻滷味：LINE 機器人
 // 1. 網頁（剩貨頁、訂購頁）按「傳到 LINE 群組」→ 這裡用官方帳號把文字傳到綁定的群組。
-//    文字只經過這裡轉送，不存檔。訂單電話是否遮蔽由網頁決定（預設遮蔽）。
+//    文字只經過這裡轉送，不存檔（額度用完時例外，見 4.）。訂單電話是否遮蔽由網頁決定（預設遮蔽）。
 // 2. LINE 的 Webhook 也打到這裡：在群組裡傳網頁上顯示的 6 位數字，就把那個群組綁定為發送對象。
 // 驗證：網頁是公開的，所以用 tag —— 只有知道店家密碼的手機算得出來的 64 位雜湊；第一個設定的 tag 就是店家。
 //       LINE 打來的請求用 Channel secret 驗簽章。
@@ -8,6 +8,8 @@
 // 3. 每天提醒：網頁把「哪天、幾點取、在哪、要不要秤、稱呼、品項」交過來（不含電話地址，過了當天就刪），
 //    資料庫排程打 op=tick（帶只存在資料庫裡的 cron_key），有訂單才傳卡片到群組：
 //    凌晨 3:00（slot=early）只提醒「早市」的訂單；中午 12:00 提醒其他市場（早市那時已經提醒過）。
+// 4. 免費額度用完（LINE 回 429）：網頁傳的卡片先存在 outbox（最多 4 張、最久 2 天），
+//    有人在群組打「卡片」「訂單」「明天訂單」，機器人用「回覆」送出——回覆不算免費額度。
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ORIGINS = ["https://chenxxrose-ux.github.io"];
@@ -70,6 +72,39 @@ async function verifySig(secret: string, body: string, sig: string) {
   return d === 0;
 }
 
+/* ===== 免費額度用完時：卡片先存著，群組打字再用「回覆」送（回覆不算額度） ===== */
+type Out = { at: number; msg: unknown };
+function outbox(cfg: Cfg): Out[] {
+  let a: Out[] = []; try { a = JSON.parse(cfg.outbox || "[]"); } catch { /* 壞掉當沒有 */ }
+  return a.filter(x => x && Date.now() - x.at < 2 * 86400000);   // 放超過 2 天的不送了
+}
+async function queue(msg: unknown) {
+  const a = [...outbox(await getCfg()), { at: Date.now(), msg }].slice(-4);
+  await setCfg({ outbox: JSON.stringify(a) });
+}
+async function dropOut(n: number) {   // 回覆成功：拿掉送出的前 n 張
+  if (!n) return;
+  const a = outbox(await getCfg()).slice(n);
+  a.length ? await setCfg({ outbox: JSON.stringify(a) }) : await delCfg(["outbox"]);
+}
+const HELP = "在群組打這些字，我會回卡片（不扣 LINE 免費額度）：\n・卡片：網頁傳不出去、先存著的卡片\n・訂單：今天的訂單\n・明天訂單：明天的訂單";
+async function ask(cfg: Cfg, t: string): Promise<{ msgs: unknown[]; n: number } | null> {
+  const want = /^(卡片|小卡|剩貨|要帶)$/.test(t) ? "card" : /^(今天)?訂單$/.test(t) ? "today" : /^明天(的)?訂單$/.test(t) ? "tmr" : /^(說明|幫助|怎麼用|指令)$/.test(t) ? "help" : "";
+  if (!want) return null;
+  if (want === "help") return { msgs: [{ type: "text", text: HELP }], n: 0 };
+  const box = outbox(cfg).slice(0, want === "card" ? 5 : 4);
+  const out: unknown[] = box.map(x => x.msg);
+  if (want !== "card") {
+    const day = twToday(want === "tmr" ? 1 : 0);
+    let daily: Record<string, Slot[]> = {}; try { daily = JSON.parse(cfg.daily || "{}"); } catch { /* 沒有 */ }
+    const slots = daily[day.ymd] || [];
+    out.push(slots.length ? dailyCard(day.md, day.wd, slots, false, want === "tmr" ? "明天" : "今天")
+      : { type: "text", text: `${want === "tmr" ? "明天" : "今天"}（${day.md}）沒有訂單。` });
+  }
+  if (!out.length) out.push({ type: "text", text: "目前沒有存著的卡片。網頁傳不出去時，卡片會先存起來，打「卡片」就會出現。" });
+  return { msgs: out, n: box.length };
+}
+
 /* ===== LINE 打來的 Webhook ===== */
 async function webhook(body: string, sig: string) {
   const cfg = await getCfg();
@@ -90,6 +125,10 @@ async function webhook(body: string, sig: string) {
         await setCfg({ group: gid, group_name: name || "LINE 群組" });
         await delCfg(["pair", "pair_exp"]);
         await say(cfg.token, ev.replyToken, "✅ 已連上！之後在網頁按「傳到 LINE 群組」，剩貨和訂單就會傳到這裡。");
+      } else if (gid === cfg.group) {
+        const a = await ask(cfg, code);
+        if (a) { const r = await line(cfg.token, "/message/reply", { method: "POST", body: JSON.stringify({ replyToken: ev.replyToken, messages: a.msgs }) });
+          if (r.ok) await dropOut(a.n); else console.error("reply", r.status, r.j); }
       }
     } else if (ev.type === "leave" && gid && gid === cfg.group) {
       await delCfg(["group", "group_name"]);
@@ -119,13 +158,13 @@ function cleanDaily(x: unknown): Record<string, Slot[]> | null {
   }
   return out;
 }
-function twToday() {
-  const t = new Date(Date.now() + 8 * 3600 * 1000);
+function twToday(add = 0) {
+  const t = new Date(Date.now() + 8 * 3600 * 1000 + add * 86400000);
   return { ymd: t.toISOString().slice(0, 10), wd: "日一二三四五六"[t.getUTCDay()], md: `${t.getUTCMonth() + 1}/${t.getUTCDate()}` };
 }
 const txt = (text: string, o: Record<string, unknown> = {}) => ({ type: "text", text, ...o });
 const EARLY = "早市";
-function dailyCard(md: string, wd: string, slots: Slot[], early = false) {
+function dailyCard(md: string, wd: string, slots: Slot[], early = false, day = "今天") {
   const list = [...slots].sort((a, b) => (a.t || "99") < (b.t || "99") ? -1 : (a.t || "99") > (b.t || "99") ? 1 : 0);
   const weigh = list.filter(s => s.w).length;
   // 一筆一張小卡：上面「時間　稱呼　地點」，下面品項
@@ -143,13 +182,13 @@ function dailyCard(md: string, wd: string, slots: Slot[], early = false) {
     ],
   });
   return {
-    type: "flex", altText: `今天（${md}）${early ? "早市" : ""}有 ${list.length} 筆訂單`,
+    type: "flex", altText: `${day}（${md}）${early ? "早市" : ""}有 ${list.length} 筆訂單`,
     contents: {
       type: "bubble", size: "mega",
       header: { type: "box", layout: "vertical", backgroundColor: "#F7F0E1", paddingAll: "20px", spacing: "sm", contents: [
         txt(early ? "早市訂單提醒" : "訂單提醒", { size: "sm", color: "#9A6B17", weight: "bold" }),
         { type: "box", layout: "baseline", spacing: "sm", contents: [
-          txt(early ? "今天早市" : "今天", { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
+          txt(early ? day + "早市" : day, { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
           txt(String(list.length), { size: "3xl", color: "#7B1F24", weight: "bold", flex: 0 }),
           txt("筆訂單", { size: "lg", color: "#1E1A17", weight: "bold", flex: 0 }),
         ] },
@@ -267,7 +306,10 @@ Deno.serve(async (req) => {
       let r = await push(flex ? { type: "flex", altText: alt, contents: flex } : { type: "text", text }, key);
       if (flex && r.status === 400) { console.error("flex", r.j); r = await push({ type: "text", text }, crypto.randomUUID()); }
       if (r.status === 409) return json(req, { ok: true, dup: true });   // 同一則已送過（重試）
-      if (r.status === 429) return json(req, { error: "quota" }, 429);
+      if (r.status === 429) {   // 這個月的免費額度用完了：卡片先存著，群組打「卡片」用回覆送出
+        await queue(flex ? { type: "flex", altText: alt, contents: flex } : { type: "text", text });
+        return json(req, { ok: true, queued: true });
+      }
       if (r.status === 400 || r.status === 403 || r.status === 404) { console.error("push", r.status, r.j); return json(req, { error: "group gone" }, 409); }
       if (!r.ok) { console.error("push", r.status, r.j); return json(req, { error: "line" }, 502); }
       return json(req, { ok: true, quota: await quota(cfg.token) });
