@@ -342,6 +342,7 @@
   .edit-bar .link-btn{color:#fff;min-height:36px}
   .pend-n{color:#B26A00;font-size:13px}
   .order-btns{margin-top:8px}
+  .order-btns.three{grid-template-columns:repeat(3,1fr)}
   .order .weigh-btn{width:100%;background:var(--gold-soft);color:var(--gold)}
   .order-tools{flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px 10px;margin-top:6px}
   .del-btn{margin-left:auto;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid #E9C2BE;color:var(--red);font-size:14px;background:#fff}
@@ -2091,8 +2092,9 @@ function showOrders(keepScroll){
       <pre class="preview" data-pv="${i}"></pre>
       ${o.items.some(l => l.weigh) && o.st !== "cancel" ? `<button type="button" class="btn small weigh-btn" data-weigh="${i}">${ICON.scale}補秤重金額</button>` : ""}
       ${o.st ? "" : `<button type="button" class="btn small st-done" data-st="${i}" data-v="${o.market === "外送" ? "delivered" : "picked"}">${ICON.check}${o.market === "外送" ? "已送達" : "已取貨"}</button>`}
-      <div class="order-btns">
+      <div class="order-btns three">
         <button type="button" class="btn share small" data-share="${i}">${ICON.share}分享這筆</button>
+        <button type="button" class="btn ghost small" data-img="${i}">小卡圖片</button>
         <button type="button" class="btn ghost small" data-edit="${i}">${ICON.edit}修改</button></div>
       <div class="order-tools">
         <button type="button" class="link-btn" data-copy="${i}">複製</button>
@@ -2132,6 +2134,7 @@ function showOrders(keepScroll){
   sheet.querySelectorAll("[data-rf]").forEach(b => b.onclick = () => setRefund(all[b.dataset.rf], b.dataset.v));
   sheet.querySelectorAll("[data-paid]").forEach(b => b.onclick = () => setPaid(all[b.dataset.paid]));
   sheet.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareText(buildText(all[b.dataset.share]), b));
+  sheet.querySelectorAll("[data-img]").forEach(b => b.onclick = () => LineCard.shareImage(orderCard(all[b.dataset.img]), b, "訂單"));
   sheet.querySelectorAll("[data-weigh]").forEach(b => b.onclick = () => editWeigh(all[b.dataset.weigh]));
   sheet.querySelectorAll("[data-cf]").forEach(b => b.onclick = () => showConflict(all[b.dataset.cf]));
   sheet.querySelectorAll("[data-revs]").forEach(b => b.onclick = () => showRevs(all[b.dataset.revs]));

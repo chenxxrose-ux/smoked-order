@@ -817,15 +817,25 @@ function showSent(d, m){
   const r = all()[docId(d, m)] || {}, sends = r.sends || [];
   sheet.dataset.sub = "sent";
   sheet.innerHTML = `<h3>${fmtDate(d)} ${MKT[m]}</h3>
-    ${Object.keys(r.v || {}).length || r.note ? `<div class="state warn">這天分享之後又填了新的內容，還沒分享。</div>` : ""}
+    ${(Object.keys(r.v || {}).length || r.note) && !(sends[0] && JSON.stringify(sends[0].v) === JSON.stringify(r.v || {}) && (sends[0].note || "") === (r.note || "")) ? `<div class="state warn">這天分享之後又填了新的內容，還沒分享。</div>` : ""}
     ${sends.map((x, i) => `<p class="prep-cat">${x.via === "copy" ? "複製" : x.via === "line" ? "傳到 LINE 群組" : "分享"}於 ${when(x.at)}</p>
       <pre class="sent-pre" data-pv="${i}"></pre>
-      <div class="sync-btns"><button type="button" class="btn ghost" data-copy="${i}">${ICON.copy}再複製一次</button></div>`).join("")}
+      <div class="sync-btns"><button type="button" class="btn ghost" data-img="${i}">分享小卡圖片</button><button type="button" class="btn ghost" data-copy="${i}">${ICON.copy}再複製一次</button></div>`).join("")}
     <div class="actions"><button type="button" class="btn ghost" id="sentBack">回紀錄</button><button type="button" class="btn" id="sentOpen">打開這天繼續填</button></div>`;
   sheet.querySelectorAll("[data-pv]").forEach(pre => pre.textContent = stockText({ v: sends[pre.dataset.pv].v, note: sends[pre.dataset.pv].note }, d, m));
   sheet.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(stockText({ v: sends[b.dataset.copy].v, note: sends[b.dataset.copy].note }, d, m), b));
+  sheet.querySelectorAll("[data-img]").forEach(b => b.onclick = () => LineCard.shareImage(stockCard({ v: sends[b.dataset.img].v, note: sends[b.dataset.img].note }, d, m), b, "剩貨"));
   $("sentBack").onclick = () => showHistory(true);
-  $("sentOpen").onclick = () => { date = d; modal.classList.remove("show"); setMarket(m); window.scrollTo({ top: 0 }); };
+  // 送出後這頁是清空的；打開繼續填時，把最後一次送出的內容帶回來（之後又填了新的就照新的）
+  $("sentOpen").onclick = () => {
+    const a = all(), id = docId(d, m), last = sends[0];
+    let back = false;
+    if (last && !Object.keys((a[id] || {}).v || {}).length && !(a[id] || {}).note) {
+      const rec = editRec(a, id); rec.v = { ...last.v }; rec.note = last.note || ""; rec.upd = Date.now(); saveAll(a); back = true;
+    }
+    date = d; modal.classList.remove("show"); setMarket(m); window.scrollTo({ top: 0 });
+    if (back) toast("已帶回上次送出的內容，改完再送一次");
+  };
   sheet.scrollTop = 0;
 }
 
