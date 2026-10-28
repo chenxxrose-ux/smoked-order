@@ -526,7 +526,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=7"></script>
-<script src="core.js?v=9"></script>
+<script src="core.js?v=10"></script>
 <script src="parse.js?v=2"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
@@ -829,6 +829,7 @@ function shareBlock(shareLabel, copyLabel){
   return `<pre class="preview" data-preview></pre>
     <div class="phone-opt"><span data-phstate></span><button type="button" class="link-btn" data-phtoggle></button></div>
     <button type="button" class="btn line ln-full" data-act="line">傳到 LINE 群組</button>
+    <button type="button" class="btn ghost ln-full" data-act="img">分享小卡圖片（不扣 LINE 額度）</button>
     <div class="share-actions">
       <button type="button" class="btn ghost" data-act="share">${ICON.share}${shareLabel}</button>
       <button type="button" class="btn ghost" data-act="copy">${ICON.copy}${copyLabel}</button></div>`;
@@ -852,10 +853,11 @@ function bindShare(root, o){
   // 完整電話只用一次：分享或複製之後自動改回遮蔽
   const use = (fn, btn) => { const p = fn(text(), btn); if (full) { full = false; paint(); } return p; };
   root.querySelector('[data-act="share"]').onclick = e => use(shareText, e.currentTarget);
+  root.querySelector('[data-act="img"]').onclick = e => use((t, b) => LineCard.shareImage(orderCard(o, { fullPhone: full }), b, "訂單"), e.currentTarget);
   root.querySelector('[data-act="copy"]').onclick = e => use(copyText, e.currentTarget);
   root.querySelector('[data-act="line"]').onclick = e => use(async (t, b) => {
     const r = await LineBot.send(t, b, orderCard(o, { fullPhone: full }));
-    if (r) toast(`已傳到 LINE「${r.group}」${LineBot.quotaText(r.quota) ? "，" + LineBot.quotaText(r.quota) : ""}`);
+    if (r) toast(LineBot.doneText(r));
   }, e.currentTarget);
   paint();
 }

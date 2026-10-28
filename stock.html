@@ -400,7 +400,7 @@
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
 <script src="shared.js?v=7"></script>
-<script src="core.js?v=9"></script>
+<script src="core.js?v=10"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -700,10 +700,23 @@ function paintCtx(){
 const paintNet = () => { $("netBar").hidden = navigator.onLine; };
 window.addEventListener("online", paintNet); window.addEventListener("offline", paintNet);
 let sharing = false;
+/* 分享：先問要分享小卡圖片還是文字 */
 $("shareBtn").onclick = async () => {
   if (sharing) return;
   if (!mk) { await askMarket(); return; }
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  $("dlgBox").innerHTML = `<h4>要分享哪一種？</h4><p>用自己的 LINE 傳，不會扣機器人的免費則數。</p>
+    <div class="dlg-btns" style="flex-direction:column"><button type="button" class="btn" data-img>分享小卡圖片</button><button type="button" class="btn ghost" data-txt>分享文字</button><button type="button" class="btn ghost" data-no>取消</button></div>`;
+  $("dlg").classList.add("show");
+  $("dlgBox").querySelector("[data-no]").onclick = () => closeDlg();
+  $("dlgBox").querySelector("[data-txt]").onclick = () => { closeDlg(); shareTextFlow(); };
+  $("dlgBox").querySelector("[data-img]").onclick = async () => {
+    closeDlg(); sharing = true;
+    try { if (await LineCard.shareImage(stockCard(), $("shareBtn"), "剩貨")) afterShare("share", "已交給分享選單，請到 LINE 確認有送出"); }
+    finally { sharing = false; }
+  };
+};
+async function shareTextFlow(){
   const text = stockText(), data = { text }, btn = $("shareBtn");
   let can = window.isSecureContext && typeof navigator.share === "function";
   if (can && typeof navigator.canShare === "function") { try { can = navigator.canShare(data); } catch (e) { can = false; } }
@@ -715,13 +728,13 @@ $("shareBtn").onclick = async () => {
     else if (await copyText(text, null, true)) afterShare("copy", "分享沒有成功，已改成複製，請到 LINE 貼上");
     else toast("分享沒有成功，紀錄還在，請再試一次", true);
   } finally { sharing = false; btn.disabled = false; btn.textContent = "分享"; }
-};
+}
 $("lineBtn").onclick = async () => {
   if (sharing) return;
   if (!mk) { await askMarket(); return; }
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   const r = await LineBot.send(stockText(), $("lineBtn"), stockCard());
-  if (r) afterShare("line", `已傳到 LINE「${r.group}」${LineBot.quotaText(r.quota) ? "（" + LineBot.quotaText(r.quota) + "）" : ""}`);
+  if (r) afterShare("line", LineBot.doneText(r));
 };
 /* 分享完：記下分享時間（存到後台），清空選擇，準備記下一筆 */
 function afterShare(via, msg){
