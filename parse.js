@@ -164,11 +164,16 @@
         if (it.opts && it.opts.length > 1) {
           const half = it.opts.findIndex(o => /^半/.test(o.label));
           const want = ["前半", "後半"].map(w => it.opts.findIndex(o => o.label === w));
-          if (/前半/.test(s) && want[0] >= 0) { oi = want[0]; s = s.replace("前半", ""); }
+          const named = it.opts.findIndex(o => !/^[一半]/.test(o.label) && s.includes(o.label));   // 例：豬皮「大卷」
+          if (named >= 0) { oi = named; s = s.replace(it.opts[named].label, ""); }
+          else if (/前半/.test(s) && want[0] >= 0) { oi = want[0]; s = s.replace("前半", ""); }
           else if (/後半/.test(s) && want[1] >= 0) { oi = want[1]; s = s.replace("後半", ""); }
           else if (/半/.test(s) && half >= 0) { oi = half; s = s.replace(new RegExp(`半[${UNIT}]?`), ""); }
         }
         s = s.replace(/[（(][^）)]*[）)]/g, "");
+        // 「豬肚一顆3」：選項名稱裡的「一」不是數量，後面還有數字就拿掉選項名稱
+        const lab = it.opts && it.opts[oi] ? it.opts[oi].label.replace(/（.*?）/, "") : "";
+        if (lab && s.includes(lab) && new RegExp(NUM).test(s.replace(lab, ""))) s = s.replace(lab, "");
         const x = s.match(new RegExp(`x?\\s*(${NUM})\\s*[${UNIT}]?`));
         let q = x ? toNum(x[1]) : 1;
         if (!(q >= 1 && q <= 999)) q = 1;
