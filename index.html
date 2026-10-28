@@ -170,6 +170,11 @@
   .ti-box{display:block;width:100%;box-sizing:border-box;min-height:132px;background:var(--card);border-radius:var(--r);padding:12px 14px;font-size:17px;line-height:1.5}
   .ti-tip{font-size:13px;color:var(--sub);line-height:1.55;margin:8px 4px 14px}
   .ti-tip b{color:var(--ink);font-weight:600}
+  .ti-ex{margin:12px 0 4px}
+  .ti-ex-h{margin:0 4px 6px;font-size:13px;color:var(--sub)}
+  .ti-ex button{display:block;width:100%;margin-top:6px;padding:10px 14px;border-radius:var(--r);border:1px dashed #CDBFB2;background:transparent;text-align:left;font-size:14px;line-height:1.5;color:var(--ink)}
+  .ti-ex button b{display:block;font-size:12px;font-weight:600;color:var(--soy)}
+  .ti-ex button:active{background:var(--fill)}
   .rows .row.miss span:last-child{color:var(--gold)}
   .ti-g{display:block;font-size:13px;color:var(--gold);margin-top:2px}
 
@@ -288,8 +293,19 @@
   .menu-head{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
   .menu-head .sec{margin-bottom:0}
   .sec-t{width:100%;display:flex;align-items:center;gap:8px;min-height:48px;margin:10px 0 4px;padding:0 4px;font-size:16px;font-weight:600;color:var(--ink);text-align:left}
-  .sec-t .sec-n{flex:1;font-size:13px;font-weight:500;color:var(--soy)}
-  .sec-t .chev{color:var(--sub);transition:transform .15s}
+  .sec-t{scroll-margin-top:calc(var(--top-h,64px) + 60px)}
+  .sec-t .sec-n{flex:none;padding:3px 10px;border-radius:12px;background:var(--soy);color:#fff;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+  .sec-t .sec-n:empty{display:none}
+  .sec-t .chev{margin-left:auto;color:var(--sub);transition:transform .15s}
+  /* 品項區頂端固定跳轉：煙燻｜滷味 */
+  .jump{position:sticky;top:var(--top-h,64px);z-index:4;display:flex;gap:8px;margin:8px calc(-1 * var(--gut)) 0;padding:8px var(--gut);
+    background:rgba(247,246,243,.94);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+  .jump button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;border-radius:22px;background:var(--card);
+    border:1px solid var(--hair);font-size:16px;font-weight:600;color:var(--ink)}
+  .jump button.on{background:var(--soy);border-color:var(--soy);color:#fff}
+  .jump .jn{min-width:20px;padding:1px 6px;border-radius:10px;background:var(--soy);color:#fff;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;box-sizing:border-box}
+  .jump button.on .jn{background:#fff;color:var(--soy)}
+  .jump .jn:empty{display:none}
   .sec-t.shut .chev{transform:rotate(-90deg)}
   .card.folded{display:none}
   .sum-row{width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;font-size:15px;color:var(--ink)}
@@ -300,7 +316,7 @@
   .ps-spec{margin-left:6px;font-size:13px;color:var(--sub)}
   .line.memo textarea{padding:12px 0;min-height:44px}
   /* UX 調整 */
-  .it.picked{background:var(--soy-tint);margin:0 -14px;padding-left:14px;padding-right:14px;box-shadow:inset 4px 0 0 var(--soy)}
+  .it.picked{background:#EFD8D8;margin:0 -14px;padding-left:14px;padding-right:14px;box-shadow:inset 5px 0 0 var(--soy)}
   .grp .it.picked{padding-left:26px}
   .it.one.picked{padding-left:14px!important;padding-right:14px!important}
   .it.picked .it-name,.it.picked .spec{color:var(--soy);font-weight:600}
@@ -603,6 +619,10 @@ function render(){
       <button type="button" data-k="${key}" data-d="1" aria-label="增加">${ICON.plus}</button></div>`;
   const priceIn = (attr, key, val, ph) =>
     `<label class="pin">$<input type="number" min="0" inputmode="numeric" enterkeyhint="done" ${attr}="${key}" value="${val || ""}" placeholder="${ph}"></label>`;
+  const jump = document.createElement("nav");
+  jump.className = "jump"; jump.setAttribute("aria-label", "跳到品項分類");
+  jump.innerHTML = MENU.map(sec => `<button type="button" data-jump="${sec.cat}">${sec.cat}<span class="jn" data-jn="${sec.cat}"></span></button>`).join("");
+  menu.appendChild(jump);
   MENU.forEach((sec, si) => {
     const shut = folded().includes(sec.cat);
     const h = document.createElement("button");
@@ -646,6 +666,22 @@ function render(){
     menu.appendChild(card);
   });
   paintPrices();
+  jump.addEventListener("click", e => {
+    const b = e.target.closest("[data-jump]"); if (!b) return;
+    const t = menu.querySelector(`.sec-t[data-cat="${CSS.escape(b.dataset.jump)}"]`);
+    if (t.classList.contains("shut")) t.click();          // 收起來的先打開
+    t.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  // 頂端列高度（含瀏海）給固定跳轉列用；捲動時標出目前在哪一區
+  const topH = () => document.documentElement.style.setProperty("--top-h", document.querySelector(".top").offsetHeight + "px");
+  topH(); addEventListener("resize", topH);
+  const paintJump = () => {
+    const line = document.querySelector(".top").offsetHeight + jump.offsetHeight + 8;
+    let cur = "";
+    menu.querySelectorAll(".sec-t").forEach(t => { if (t.getBoundingClientRect().top <= line + 4) cur = t.dataset.cat; });
+    jump.querySelectorAll("[data-jump]").forEach(b => b.classList.toggle("on", b.dataset.jump === cur));
+  };
+  addEventListener("scroll", paintJump, { passive: true });
   menu.addEventListener("click", e => {
     if (e.target.closest(".pr")) { showPrices(e.target.closest(".pr").dataset.pr); return; }
     const t = e.target.closest(".sec-t"); if (!t) return;
@@ -1690,6 +1726,7 @@ function update(){
   document.querySelectorAll("#menu [data-n]").forEach(el => {
     const n = el.closest(".sec-t").nextElementSibling.querySelectorAll(".it.picked").length;
     el.textContent = n ? `已選 ${n} 項` : "";
+    const j = document.querySelector(`#menu [data-jn="${CSS.escape(el.dataset.n)}"]`); if (j) j.textContent = n || "";
   });
   document.getElementById("count").textContent = lines.length;
   document.getElementById("total").textContent = lines.reduce((s, l) => s + (l.sub || 0), 0);
@@ -2817,6 +2854,7 @@ function tiItemText(l){
 }
 function tiPaint(){
   const r = tiParse(), out = $id("tiOut"), go = $id("tiGo");
+  $id("tiEx").hidden = !!tiText.trim();                  // 開始打字就收起範例
   if (!tiText.trim()) { out.innerHTML = ""; go.disabled = true; return; }
   const head = tiRows(r), items = r.items.map(l => [...tiItemText(l), l.guess]);
   const row = ([a, b], miss) => `<div class="row${miss ? " miss" : ""}"><span>${escapeHtml(a)}</span><span>${escapeHtml(b)}</span></div>`;
@@ -2866,13 +2904,17 @@ function tiApply(r){
 }
 $id("typeIn").onclick = () => {
   sheet.innerHTML = `<h3>打字帶入</h3>
-    <textarea class="ti-box" id="tiIn" rows="5" placeholder="例：明天10點半 爸爸市場 王小姐 0912345678 公雞半隻 鴨頭3支 雞腳100元 米血5" aria-label="訂單文字"></textarea>
+    <textarea class="ti-box" id="tiIn" rows="5" placeholder="把客人的訂單打在這裡，或貼上 LINE 訊息" aria-label="訂單文字"></textarea>
     <p class="ti-tip">長輩可以把鍵盤切到<b>手寫</b>，或按鍵盤上的<b>麥克風</b>用講的。紙本訂單可以拍照，在照片上長按文字複製，再貼到這裡。</p>
+    <div class="ti-ex" id="tiEx"><p class="ti-ex-h">不知道怎麼寫？按一下範例試試看：</p>
+      <button type="button" data-ex="明天下午4點半 爸爸市場 王小姐 0912345678 公雞半隻 鴨頭3 米血5 豬皮大卷1"><b>範例一・市場取貨</b>明天下午4點半 爸爸市場 王小姐 0912345678 公雞半隻 鴨頭3 米血5 豬皮大卷1</button>
+      <button type="button" data-ex="週六下午3點 外送 林先生 地址：鳳山區五甲二路100號 鴨翅10 雞腳200元 不要胡椒 訂金500"><b>範例二・外送</b>週六下午3點 外送 林先生 地址：鳳山區五甲二路100號 鴨翅10 雞腳200元 不要胡椒 訂金500</button></div>
     <div id="tiOut"></div>
     <div class="actions"><button type="button" class="btn ghost" id="tiNo">取消</button><button type="button" class="btn" id="tiGo" disabled>帶入</button></div>`;
   const box = $id("tiIn"); box.value = tiText;
   let t = null;
   box.addEventListener("input", () => { tiText = box.value; clearTimeout(t); t = setTimeout(tiPaint, 250); });
+  $id("tiEx").onclick = e => { const b = e.target.closest("[data-ex]"); if (!b) return; box.value = tiText = b.dataset.ex; tiPaint(); };
   $id("tiNo").onclick = () => modal.classList.remove("show");
   $id("tiGo").onclick = () => { tiText = box.value; tiApply(tiParse()); };
   modal.classList.add("show"); tiPaint();
