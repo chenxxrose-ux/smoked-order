@@ -737,14 +737,15 @@ const LineCard = {
     const st = [], m = this.px(n.margin);
     if (m) st.push(dir === "row" ? `margin-left:${m}px` : `margin-top:${m}px`);
     const flex = n.flex != null ? n.flex : dir === "row" && n.type !== "separator" ? 1 : 0;
-    st.push(flex ? `flex:${flex} 1 0;min-width:0` : "flex:0 0 auto");
+    // 文字一律可以換行，不會疊在一起；右邊的數量最多佔七成，左邊品名至少留 4 個字寬
+    st.push(flex ? `flex:${flex} 1 0;min-width:${n.type === "text" && dir === "row" ? "4em" : "0"}` : n.type === "text" && dir === "row" ? "flex:0 1 auto;min-width:0;max-width:70%" : "flex:0 0 auto");
     if (n.type === "filler") return `<div style="flex:1 1 0"></div>`;
     if (n.type === "separator") return `<div style="${dir === "row" ? `width:1px;align-self:stretch;margin-left:${m}px` : `height:1px;margin-top:${m}px`};background:${n.color || "#ECE9E4"};flex:none"></div>`;
     if (n.type === "text") {
       st.push(`font-size:${this.FS[n.size || "md"] || 16}px`, `color:${n.color || "#1E1A17"}`, `line-height:1.4`);
       if (n.weight === "bold") st.push("font-weight:700");
       if (n.align) st.push(`text-align:${n.align === "end" ? "right" : n.align === "center" ? "center" : "left"}`);
-      st.push(n.wrap ? "white-space:pre-wrap;word-break:break-word" : "white-space:nowrap;overflow:hidden;text-overflow:ellipsis");
+      st.push(n.wrap || dir === "row" ? "white-space:pre-wrap;word-break:break-word" : "white-space:nowrap;overflow:hidden;text-overflow:ellipsis");
       if (n.gravity) st.push(`align-self:${n.gravity === "center" ? "center" : n.gravity === "bottom" ? "flex-end" : "flex-start"}`);
       return `<div style="${st.join(";")}">${escapeHtml(n.text)}</div>`;
     }
@@ -768,12 +769,36 @@ const LineCard = {
       sc.src = "html2canvas.min.js";   // html2canvas 1.4.1（MIT），放在網站裡，不用另外連外部網站
       sc.onload = ok; sc.onerror = () => no(new Error("offline")); document.head.appendChild(sc);
     });
+    // 跟官方帳號的卡片一樣：白色圓角卡片、外面不加底框（四個角透明）
     const b = card.contents, wrap = document.createElement("div");
-    wrap.style.cssText = "position:fixed;left:-10000px;top:0;width:340px;padding:12px;background:#F4F1EC;font-family:-apple-system,BlinkMacSystemFont,'PingFang TC','Noto Sans TC','Microsoft JhengHei',sans-serif";
-    wrap.innerHTML = `<div style="background:#fff;border-radius:18px;overflow:hidden">${["header", "body", "footer"].filter(k => b[k] && k !== "footer").map(k => this.html({ ...b[k], flex: 0 }, "column")).join("")}</div>`;
+    const draw = (w, body) => {
+      wrap.style.cssText = `position:fixed;left:-10000px;top:0;width:${w}px;font-family:-apple-system,BlinkMacSystemFont,'PingFang TC','Noto Sans TC','Microsoft JhengHei',sans-serif`;
+      wrap.innerHTML = `<div style="background:#fff;border-radius:18px;overflow:hidden">${this.html({ ...b.header, flex: 0 }, "column")}${this.html({ ...body, flex: 0 }, "column")}</div>`;
+    };
     document.body.appendChild(wrap);
     try {
-      const cv = await window.html2canvas(wrap, { scale: 3, backgroundColor: "#F4F1EC", logging: false });
+      draw(300, b.body);
+      // 太長的卡片在 LINE 裡會被縮得很小：改成左右兩欄，圖片接近方形，字才看得清楚
+      const bodyEl = wrap.firstChild.lastChild, kids = [...bodyEl.children], all = b.body.contents || [];
+      if (wrap.offsetHeight > 300 * 1.2 && kids.length === all.length && all.length >= 8) {
+        const H = bodyEl.offsetHeight, top = i => kids[i].offsetTop - bodyEl.offsetTop;
+        const isHead = n => n && (n.type === "separator" || (n.type === "text" && n.size === "xs" && n.weight === "bold"));
+        let k = 1, best = Infinity;
+        for (let i = 1; i < all.length; i++) {
+          const cost = Math.abs(top(i) - (H + (isHead(all[i]) ? 0 : 30)) / 2) - (isHead(all[i]) ? H * 0.2 : 0);
+          if (cost < best) { best = cost; k = i; }
+        }
+        let right = all.slice(k);
+        if (right[0] && right[0].type === "separator") right = right.slice(1);
+        if (!isHead(right[0])) {                                   // 同一類拆成兩邊：右邊補上分類名稱（續）
+          const h = all.slice(0, k).reverse().find(n => n.type === "text" && n.size === "xs" && n.weight === "bold");
+          if (h) right = [{ ...h, text: h.text + "（續）", margin: "none" }, ...right];
+        } else right = [{ ...right[0], margin: "none" }, ...right.slice(1)];
+        const col = c => ({ type: "box", layout: "vertical", flex: 1, contents: c });
+        const left = all.slice(0, k).map((n, i) => i ? n : { ...n, margin: "none" });
+        draw(600, { ...b.body, contents: [{ type: "box", layout: "horizontal", spacing: "xxl", margin: "lg", contents: [col(left), { type: "separator", color: this.C.hair }, col(right)] }] });
+      }
+      const cv = await window.html2canvas(wrap, { scale: 3, backgroundColor: null, logging: false });
       return await new Promise(r => cv.toBlob(r, "image/png"));
     } finally { wrap.remove(); }
   },
