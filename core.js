@@ -778,26 +778,6 @@ const LineCard = {
     document.body.appendChild(wrap);
     try {
       draw(300, b.body);
-      // 太長的卡片在 LINE 裡會被縮得很小：改成左右兩欄，圖片接近方形，字才看得清楚
-      const bodyEl = wrap.firstChild.lastChild, kids = [...bodyEl.children], all = b.body.contents || [];
-      if (wrap.offsetHeight > 300 * 1.2 && kids.length === all.length && all.length >= 8) {
-        const H = bodyEl.offsetHeight, top = i => kids[i].offsetTop - bodyEl.offsetTop;
-        const isHead = n => n && (n.type === "separator" || (n.type === "text" && n.size === "xs" && n.weight === "bold"));
-        let k = 1, best = Infinity;
-        for (let i = 1; i < all.length; i++) {
-          const cost = Math.abs(top(i) - (H + (isHead(all[i]) ? 0 : 30)) / 2) - (isHead(all[i]) ? H * 0.2 : 0);
-          if (cost < best) { best = cost; k = i; }
-        }
-        let right = all.slice(k);
-        if (right[0] && right[0].type === "separator") right = right.slice(1);
-        if (!isHead(right[0])) {                                   // 同一類拆成兩邊：右邊補上分類名稱（續）
-          const h = all.slice(0, k).reverse().find(n => n.type === "text" && n.size === "xs" && n.weight === "bold");
-          if (h) right = [{ ...h, text: h.text + "（續）", margin: "none" }, ...right];
-        } else right = [{ ...right[0], margin: "none" }, ...right.slice(1)];
-        const col = c => ({ type: "box", layout: "vertical", flex: 1, contents: c });
-        const left = all.slice(0, k).map((n, i) => i ? n : { ...n, margin: "none" });
-        draw(600, { ...b.body, contents: [{ type: "box", layout: "horizontal", spacing: "xxl", margin: "lg", contents: [col(left), { type: "separator", color: this.C.hair }, col(right)] }] });
-      }
       const cv = await window.html2canvas(wrap, { scale: 3, backgroundColor: null, logging: false });
       return await new Promise(r => cv.toBlob(r, "image/png"));
     } finally { wrap.remove(); }
