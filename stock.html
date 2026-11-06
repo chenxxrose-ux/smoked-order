@@ -384,10 +384,10 @@
   .tbtn{min-height:34px;padding:0 12px;border-radius:17px;background:var(--card);border:1px solid var(--hair);font-size:13px;color:var(--ink);white-space:nowrap}
   .tbtn.on{background:var(--soy);border-color:var(--soy);color:#fff}
   /* 明天不用：平常收起來，按「勾明天不用」才出現勾選格 */
-  .skip,.skip-ph{display:none;width:40px}
-  .skipmode .skip,.skipmode .skip-ph{display:flex}
-  .skip{justify-content:center;min-height:44px}
-  .it.off .it-main::after,.grp.off > .it:first-child .it-main::after{content:"明天不用";grid-column:1/-1;justify-self:start;display:inline-block;padding:0 5px;border-radius:6px;font-size:11px;line-height:1.6;font-weight:600;color:var(--soy);background:var(--soy-tint);text-decoration:none;vertical-align:2px}
+  /* 明天不用：有填剩貨（或已勾）的品項才出現，右邊固定留一欄，格子不會左右跳 */
+  .skip,.skip-ph{display:flex;visibility:hidden;width:44px}
+  .has .skip,.off .skip,.skipmode .skip{visibility:visible}
+  .skip{justify-content:center;min-height:44px;font-size:10px;line-height:1.2;color:var(--sub);white-space:nowrap}
   .qbox input::placeholder,.wbox input::placeholder{color:transparent}
   .qbox .unit{min-width:28px}
 </style>
@@ -552,7 +552,7 @@ function render(){
     const p = head && !r.bring && prev ? prev.g.get(r.cat + "|" + r.grp) : null;
     const yest = "" && p ? `<span class="yest${p.score >= 10 ? " hi" : ""}">${pDay}剩 ${escapeHtml(p.parts.join("＋"))}</span>` : "";   // 上次沒剩就不寫，畫面比較乾淨
     const skipBtn = r.bring ? "" : head ? `<button type="button" class="skip" data-skip="${gk}" aria-pressed="false" aria-label="${escapeHtml(r.grp)}明天不用">
-        <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>` : `<span class="skip-ph"></span>`;
+        <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>明天不用</button>` : `<span class="skip-ph"></span>`;
     const ctrl = r.kind === "lvl"
       ? `<div class="seg small lvl${r.levels.length > 2 ? " l3" : ""}" id="b${i}">${r.levels.map(([v, t]) => `<button type="button" data-i="${i}" data-lv="${v}">${t}</button>`).join("")}</div>`
       : r.kind === "w"
@@ -649,6 +649,7 @@ function fill(force){
     else if (document.activeElement !== inp) inp.value = v ? v : "";
     $("b" + i).classList.toggle("on", v > 0);
   });
+  document.querySelectorAll("#list [data-gk]").forEach(el => el.classList.toggle("has", !!el.querySelector('[id^="b"].on')));
   if (document.activeElement !== $("note")) $("note").value = rec.note || "";
   paintSkips(rec);
   paintCounts(rec);
@@ -740,7 +741,8 @@ $("list").addEventListener("click", e => {
   const i = Number(b.dataset.i), v = (cur().v[ROWS[i].key] || 0) + Number(b.dataset.d);
   setVal(i, Math.max(0, v)); fill();
 });
-$("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i === undefined) return; setVal(Number(i), e.target.value); $("b" + i).classList.toggle("on", Number(e.target.value) > 0); paintCounts(cur()); });
+$("list").addEventListener("input", e => { const i = e.target.dataset.i; if (i === undefined) return; setVal(Number(i), e.target.value); $("b" + i).classList.toggle("on", Number(e.target.value) > 0);
+  const g = e.target.closest("[data-gk]"); if (g) g.classList.toggle("has", !!g.querySelector('[id^="b"].on')); paintCounts(cur()); });
 $("list").addEventListener("focusout", () => fill());
 $("note").addEventListener("input", () => {
   if (!mk) return;
