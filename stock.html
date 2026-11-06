@@ -377,6 +377,19 @@
   .stat{font-size:13px;color:var(--sub)}
   .top a.link{font-size:14px;color:var(--sub);text-decoration:underline;text-underline-offset:3px;min-height:40px;display:inline-flex;align-items:center}
   .note-in{width:100%;min-height:64px;border:none;background:transparent;font-size:16px;padding:12px 0;resize:none;outline:none}
+
+  /* ===== 排版整理（2026-11-06） ===== */
+  .sortbar,.sort-hint{display:none}
+  .tools{display:flex;justify-content:flex-end;gap:6px;margin:14px 4px 0}
+  .tbtn{min-height:34px;padding:0 12px;border-radius:17px;background:var(--card);border:1px solid var(--hair);font-size:13px;color:var(--ink);white-space:nowrap}
+  .tbtn.on{background:var(--soy);border-color:var(--soy);color:#fff}
+  /* 明天不用：平常收起來，按「勾明天不用」才出現勾選格 */
+  .skip,.skip-ph{display:none;width:40px}
+  .skipmode .skip,.skipmode .skip-ph{display:flex}
+  .skip{justify-content:center;min-height:44px}
+  .it.off .it-main::after,.grp.off > .it:first-child .it-main::after{content:"明天不用";grid-column:1/-1;justify-self:start;display:inline-block;padding:0 5px;border-radius:6px;font-size:11px;line-height:1.6;font-weight:600;color:var(--soy);background:var(--soy-tint);text-decoration:none;vertical-align:2px}
+  .qbox input::placeholder,.wbox input::placeholder{color:transparent}
+  .qbox .unit{min-width:28px}
 </style>
 </head>
 <body>
@@ -470,6 +483,7 @@ const catLabel = c => CAT_LABEL[c] || c;
 const SKIP = "|明天不用";
 const skipKey = r => `${r.cat}|${r.grp}${SKIP}`;
 const isSkipKey = k => String(k).endsWith(SKIP);
+let skipMode = false;   // 按「勾明天不用」才顯示勾選格
 let sortMode = (() => { try { return localStorage.getItem("stockSort") === "o" ? "o" : "y"; } catch (e) { return "y"; } })();
 function groupParts(v){
   const g = new Map();
@@ -513,10 +527,11 @@ function render(){
     });
   }
   const pDay = prev ? (prev.n === 1 ? "昨天" : `${Number(prev.day.slice(5, 7))}/${Number(prev.day.slice(8))}`) : "";
-  let html = `<div class="sortbar" data-card="排序"><span>排序</span><div class="seg" role="group" aria-label="排序方式">
-      <button type="button" data-sort="y" class="${sortMode === "y" ? "on" : ""}">上次剩多的在上面</button>
-      <button type="button" data-sort="o" class="${sortMode === "o" ? "on" : ""}">原本順序</button></div></div>
-    <p class="sort-hint" data-card="排序">${!mk ? "選好市場後，會照上次剩的量排序" : prev ? `照${pDay}（${MKT[mk]}）剩的量排序。勾「明天不用」的品項，傳到群組時會另外列出來` : "前 14 天沒有這個市場的紀錄，先照原本順序"}</p>`;
+  // 排序和「明天不用」縮成一行兩個小按鈕
+  const sortLbl = sortMode === "y" && prev ? `${pDay}剩多的在上` : "原本順序";
+  let html = `<div class="tools" data-card="排序">
+      <button type="button" class="tbtn" data-sort="${sortMode === "y" ? "o" : "y"}" aria-label="切換排序">${sortLbl} ▾</button>
+      <button type="button" class="tbtn${skipMode ? " on" : ""}" data-skipmode>${skipMode ? "勾好了" : "勾明天不用"}</button></div>`;
   let cat = "", grp = null;
   const close = () => { if (grp) { html += "</div>"; grp = null; } };
   order.forEach(i => {
@@ -537,7 +552,7 @@ function render(){
     const p = head && !r.bring && prev ? prev.g.get(r.cat + "|" + r.grp) : null;
     const yest = p ? `<span class="yest${p.score >= 10 ? " hi" : ""}">${pDay}剩 ${escapeHtml(p.parts.join("＋"))}</span>` : "";   // 上次沒剩就不寫，畫面比較乾淨
     const skipBtn = r.bring ? "" : head ? `<button type="button" class="skip" data-skip="${gk}" aria-pressed="false" aria-label="${escapeHtml(r.grp)}明天不用">
-        <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>明天不用</button>` : `<span class="skip-ph"></span>`;
+        <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>` : `<span class="skip-ph"></span>`;
     const ctrl = r.kind === "lvl"
       ? `<div class="seg small lvl${r.levels.length > 2 ? " l3" : ""}" id="b${i}">${r.levels.map(([v, t]) => `<button type="button" data-i="${i}" data-lv="${v}">${t}</button>`).join("")}</div>`
       : r.kind === "w"
@@ -545,7 +560,7 @@ function render(){
       : `<div class="qbox" id="b${i}"><input type="number" inputmode="numeric" pattern="[0-9]*" min="0" data-i="${i}" placeholder="0"
           aria-label="${escapeHtml(r.name + (r.spec || ""))}${r.bring ? "要帶幾" : "剩幾"}${r.unit}"><span class="unit">${r.unit}</span></div>`;
     // 一行：品名｜份量（固定兩欄，和訂購頁一樣對齊）
-    const spec = r.bring ? `要帶幾${r.unit}` : r.multi ? (r.cnt ? "幾" : "") + r.spec : r.kind === "w" ? "秤重" : r.kind === "lvl" ? "" : (r.spec || "").replace(/（.*?）/, "");
+    const spec = r.bring ? `要帶幾${r.unit}` : r.multi ? (r.cnt ? "" : r.spec) : r.kind === "w" ? "秤重" : r.kind === "lvl" ? "" : r.unit ? ((r.spec || "").match(/（(.*?)）/) || [])[1] || "" : (r.spec || "").replace(/（.*?）/, "");
     html += `<div class="it one${r.multi && !first ? " sub" : ""}"${!r.multi && !r.bring ? ` data-gk="${gk}"` : ""}><div class="it-main"><span class="it-name">${r.multi && !first ? "" : escapeHtml(r.name)}</span>
       <span class="spec-s">${escapeHtml(spec)}</span>${yest}</div>${ctrl}${skipBtn}</div>`;
   });
@@ -625,8 +640,8 @@ function editRec(a, id){
   return rec;
 }
 
-function fill(){
-  if (shownKey !== `${date}|${mk}|${sortMode}`) render();
+function fill(force){
+  if (force || shownKey !== `${date}|${mk}|${sortMode}`) render();
   const rec = cur();
   ROWS.forEach((r, i) => {
     const v = rec.v[r.key] || 0, inp = document.querySelector(`input[data-i="${i}"]`);
@@ -707,6 +722,7 @@ function setVal(i, v){
 }
 $("list").addEventListener("click", e => {
   const so = e.target.closest("button[data-sort]");
+  if (e.target.closest("button[data-skipmode]")) { skipMode = !skipMode; $("list").classList.toggle("skipmode", skipMode); fill(true); return; }
   if (so) { sortMode = so.dataset.sort; try { localStorage.setItem("stockSort", sortMode); } catch (x) {} fill(); return; }
   const sk = e.target.closest("button[data-skip]");
   if (sk) {
@@ -804,6 +820,7 @@ function stockCard(rec = cur(), d0 = date, m0 = mk){
 /* 頂部固定：正在記哪一天、哪個市場、存了沒 */
 function paintCtx(){
   const st = !mk ? "" : !Sync.on() ? "已存在這支手機" : (Sync.need() ? "已存手機・需要店家密碼" : { busy: "同步中…", off: "已存手機・離線", err: "已存手機・同步失敗", ok: Sync.pending() ? "已存手機・等待上傳" : "已儲存・已同步" }[Sync.state] || "已儲存");
+  $("ctx").hidden = !!mk;
   $("ctx").innerHTML = mk ? `正在記：<b>${fmtDate(date)}・${MKT[mk]}</b><span class="ctx-st ${(Sync.state === "ok" && !Sync.pending() && !Sync.need()) || !Sync.on() ? "ok" : "warn"}">${st}</span>`
     : `<span class="ctx-need">還沒選市場</span>`;
 }

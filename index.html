@@ -437,6 +437,23 @@
   .prep-row .det{font-size:13px;color:var(--sub);margin-top:2px}
   .prep-row .tot{flex:none;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
   .prep-row .tot small{display:block;font-size:12px;font-weight:400;color:var(--sub)}
+
+  /* ===== 排版整理（2026-11-06） ===== */
+  /* 沒設價：上面一條提醒 */
+  .unp{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:14px}
+  .unp button{flex:none;color:#8A5A00;font-weight:600;font-size:14px;text-decoration:underline;text-underline-offset:3px;min-height:32px}
+  .pr.none{min-height:0}
+  /* 數量格空的時候不顯示灰色 0 */
+  .stepper.typed input.q::placeholder{color:transparent}
+  /* 選了：不塗整列（相鄰兩列會黏成一塊），只讓數量格和品名變色 */
+  .it.picked{background:none;margin:0;padding-left:0;padding-right:0;box-shadow:none}
+  .grp .it.picked,.grp.g1 .it.picked{padding-left:0}
+  .it.one.picked{padding-left:0!important;padding-right:0!important}
+  .stepper.typed.on input.q{background:var(--soy-tint);color:var(--soy);font-weight:700;box-shadow:inset 0 0 0 1.5px var(--soy)}
+  .it.picked .spec-m,.it.picked .spec-s{color:var(--soy);font-weight:600}
+  /* 右邊一欄一樣寬：「要」和數量格同大小 */
+  .it.one .want,.want{width:88px;min-width:88px;border-radius:10px}
+  .want.on{box-shadow:inset 0 0 0 1.5px var(--soy)}
   @media (prefers-reduced-motion:reduce){ *{transition:none!important;scroll-behavior:auto!important} }
 </style>
 </head>
@@ -460,7 +477,7 @@
     <svg class="ic go" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
   <h2 class="sec">取貨</h2>
   <section class="card">
-    <div class="mk-warn" id="mkWarn">請先選擇取貨市場</div>
+    <div class="mk-warn" id="mkWarn" hidden>請先選擇取貨市場</div>
     <div class="block"><div class="seg" id="marketSeg">
       <button type="button" data-m="爸爸市場">爸爸市場</button>
       <button type="button" data-m="媽媽市場">媽媽市場</button>
@@ -490,7 +507,7 @@
         <button type="button" data-w="1" role="radio" aria-checked="false">現場客</button></div></div>
     <div id="custBox">
     <div class="line"><label class="lbl" for="surname">姓氏</label>
-      <input type="text" id="surname" placeholder="可不填（用電話後三碼）" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
+      <input type="text" id="surname" placeholder="可不填" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
       <div class="seg small" id="titleSeg" role="radiogroup" aria-label="稱謂">
         <button type="button" data-t="小姐" role="radio" aria-checked="false">小姐</button>
         <button type="button" data-t="先生" role="radio" aria-checked="false">先生</button></div></div>
@@ -529,8 +546,9 @@
   </section>
 
   <div class="err box" id="itemsErr">請至少選一個品項</div>
+  <div class="unp" id="unpBar" hidden><span id="unpTxt"></span><button type="button" id="unpGo">去設定</button></div>
   <div id="menu"></div>
-  <div class="actions" style="margin-top:20px"><button type="button" class="btn ghost" id="priceBtn">單價設定</button><a class="btn ghost" href="stock.html" style="flex:1;text-decoration:none">每日剩貨紀錄</a></div>
+  <div class="actions" style="margin-top:20px"><button type="button" class="btn ghost" id="priceBtn">單價設定</button></div>
 </main>
 
 <div class="bar"><div class="bar-in">
@@ -572,10 +590,13 @@ function paintPrices(){
   document.querySelectorAll("#menu [data-pr]").forEach(el => {
     const v = prices[el.dataset.pr], pc = el.dataset.pr.endsWith("-pc");
     const w = pc || el.dataset.w;
-    el.textContent = pc ? (v ? `約$${v}/塊・秤重` : "秤重") : w ? (v ? `約$${v}・秤重` : "秤重") : (v ? `$${v}` : "未設價");
+    el.textContent = pc ? (v ? `約$${v}/塊・秤重` : "秤重") : w ? (v ? `約$${v}・秤重` : "秤重") : (v ? `$${v}` : "");   // 沒設價不再每列寫，改成上面一條提醒
     if (el.dataset.note && !pc && !w) { const s = document.createElement("span"); s.className = "nw"; s.textContent = el.dataset.note; el.append(s); }   // 「4個」另起一行，不會被拆開
     el.classList.toggle("none", !v && !w);
   });
+  const n = document.querySelectorAll("#menu .pr.none").length;
+  document.getElementById("unpBar").hidden = !n;
+  document.getElementById("unpTxt").textContent = `${n} 項還沒設單價，合計會少算`;
 }
 /* 單價設定：集中在這裡改，品項列就只剩一行 */
 function showPrices(focusKey){
@@ -1871,8 +1892,9 @@ function pickMarket(){
   });
 }
 function paintMarket(){
-  document.getElementById("marketSeg").classList.toggle("need", !market);
-  document.getElementById("mkWarn").hidden = !!market;
+  // 一打開不先警告；按「預覽訂單」沒選市場才會跳出來問
+  document.getElementById("marketSeg").classList.remove("need");
+  document.getElementById("mkWarn").hidden = true;
   paintAddr(); fillTimes();
 }
 document.getElementById("submitBtn").onclick = async () => {
@@ -2637,6 +2659,7 @@ async function rotatePassword(oldPw, newPw, say){
 }
 
 document.getElementById("priceBtn").onclick = showPrices;
+document.getElementById("unpGo").onclick = () => showPrices();
 document.getElementById("viewOrders").onclick = e => { e.preventDefault(); openOrders(); };
 
 Sync.paint(); Sync.run();
