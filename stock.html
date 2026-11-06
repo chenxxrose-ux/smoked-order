@@ -550,7 +550,7 @@ function render(){
     else close();
     const head = !r.multi || first;   // 這個品項的第一列：放上次剩多少、明天不用
     const p = head && !r.bring && prev ? prev.g.get(r.cat + "|" + r.grp) : null;
-    const yest = p ? `<span class="yest${p.score >= 10 ? " hi" : ""}">${pDay}剩 ${escapeHtml(p.parts.join("＋"))}</span>` : "";   // 上次沒剩就不寫，畫面比較乾淨
+    const yest = "" && p ? `<span class="yest${p.score >= 10 ? " hi" : ""}">${pDay}剩 ${escapeHtml(p.parts.join("＋"))}</span>` : "";   // 上次沒剩就不寫，畫面比較乾淨
     const skipBtn = r.bring ? "" : head ? `<button type="button" class="skip" data-skip="${gk}" aria-pressed="false" aria-label="${escapeHtml(r.grp)}明天不用">
         <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>` : `<span class="skip-ph"></span>`;
     const ctrl = r.kind === "lvl"
