@@ -10,6 +10,9 @@
 //    凌晨 3:00（slot=early）只提醒「早市」的訂單；中午 12:00 提醒其他市場（早市那時已經提醒過）。
 // 4. 免費額度用完（LINE 回 429）：網頁傳的卡片先存在 outbox（最多 4 張、最久 2 天），
 //    有人在群組打「卡片」「訂單」「明天訂單」，機器人用「回覆」送出——回覆不算免費額度。
+// 5. 群組自動接單：訊息裡同時有日期和電話，就用網頁同一套「打字帶入」拆成小卡回覆（回覆不扣額度）。
+//    小卡上按「確認有這筆訂單」→ 存進 line_inbox；網頁打開時拿走、解開、存成正式訂單。
+//    訊息內容一收到就用店家的公鑰加密（跟網頁訂單同一種），這裡解不開；只留不含電話地址的提醒資料（跟每天提醒一樣）。
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ORIGINS = ["https://chenxxrose-ux.github.io"];
@@ -105,6 +108,124 @@ async function ask(cfg: Cfg, t: string): Promise<{ msgs: unknown[]; n: number } 
   return { msgs: out, n: box.length };
 }
 
+/* ===== 群組自動接單 ===== */
+// 品項清單和拆字規則直接用網頁上的檔案（改菜單只要改網頁），10 分鐘重新抓一次
+const SITE_BASE = "https://chenxxrose-ux.github.io/smoked-order/";
+type Parser = { MENU: any[]; parse: (t: string, m: any[], now: Date) => any };
+let parser: Parser | null = null, parserAt = 0;
+async function getParser(): Promise<Parser | null> {
+  if (parser && Date.now() - parserAt < 10 * 60 * 1000) return parser;
+  try {
+    const v = Date.now();
+    const [a, b] = await Promise.all([fetch(SITE_BASE + "shared.js?b=" + v).then(r => r.ok ? r.text() : ""), fetch(SITE_BASE + "parse.js?b=" + v).then(r => r.ok ? r.text() : "")]);
+    if (!a.includes("const MENU") || !b.includes("parseOrderText")) return parser;
+    const win: Record<string, unknown> = {};
+    const MENU = new Function(a.slice(a.indexOf("const MENU"), a.indexOf("];", a.indexOf("const MENU")) + 2) + "\nreturn MENU;")();
+    new Function("window", "module", b)(win, undefined);
+    if (!Array.isArray(MENU) || typeof win.parseOrderText !== "function") return parser;
+    parser = { MENU, parse: win.parseOrderText as Parser["parse"] }; parserAt = Date.now();
+  } catch (e) { console.error("parser", e); }
+  return parser;
+}
+const WD = "日一二三四五六";
+const hasPhone = (t: string) => /0\d(?:[\s-]?\d){6,10}/.test(t.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 65248)));
+function lineOf(MENU: any[], l: any) {
+  const it = MENU[l.si].items[l.ii];
+  const lab = it.opts && it.opts.length > 1 && l.oi !== undefined ? it.opts[l.oi].label : "";
+  if (l.amount !== undefined) return { name: l.name, qty: l.amount ? `約$${l.amount}` : "金額未填", short: l.name + (l.amount ? ` 約$${l.amount}` : ""), weigh: it.type === "amount" };
+  const unit = it.type === "piece" ? " 塊" : it.unit ? " " + it.unit : "";
+  return { name: l.name + (lab ? " " + lab : ""), qty: `×${l.q}${unit}`, short: `${l.name}${lab}×${l.q}${it.unit || (it.type === "piece" ? "塊" : "")}`, weigh: !!it.weigh || it.type === "piece" };
+}
+async function sealFor(pubJson: string, data: unknown) {
+  const p = JSON.parse(pubJson);
+  const pub = await crypto.subtle.importKey("jwk", p.jwk, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["wrapKey"]);
+  const k = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(JSON.stringify(data))));
+  const wk = new Uint8Array(await crypto.subtle.wrapKey("raw", k, pub, { name: "RSA-OAEP" }));
+  const b = (u: Uint8Array) => { let s = ""; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode(...u.subarray(i, i + 8192)); return btoa(s); };
+  return { iv: b(iv), wk: b(wk), ct: b(ct), kid: String(p.kid || "") };
+}
+/* 訂單小卡（跟網頁的訂單卡同一個樣子），加一顆「確認有這筆訂單」 */
+function buildOrderCard(P: Parser, r: any, id: string) {
+  const d: Date = r.date, ymd = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  const md = `${d.getUTCMonth() + 1}/${d.getUTCDate()}（${WD[d.getUTCDay()]}）`;
+  const who = r.surname || r.title ? (r.surname || r.phone.slice(-3)) + (r.title || "") : r.phone.slice(-3) + "（客人）";
+  const lines = (r.items || []).map((l: any) => ({ ...lineOf(P.MENU, l), guess: l.guess }));
+  const deli = r.market === "外送";
+  const slot = { day: ymd, md, t: r.time || "", m: deli ? "" : String(r.market || "").slice(0, 12), d: deli ? 1 : 0, w: lines.some((l: any) => l.weigh) ? 1 : 0,
+    n: who.slice(0, 16), i: lines.map((l: any) => l.short).join("、").slice(0, 120) };
+  const C = { ink: "#1E1A17", sub: "#8A847D", soy: "#7B1F24", gold: "#8A5A00", blue: "#2F5D8A", hair: "#ECE9E4" };
+  const body: unknown[] = [
+    txt(who, { size: "xl", weight: "bold", color: C.ink, margin: "md", wrap: true }),
+    txt(r.phone, { size: "md", color: C.blue }),
+    { type: "separator", color: C.hair, margin: "lg" },
+    ...(r.addr ? [txt("外送地址：" + (r.addr.length > 6 ? r.addr.slice(0, 6) + "…" : r.addr), { size: "sm", color: C.sub, margin: "md", wrap: true })] : []),
+    txt("品項", { size: "xs", weight: "bold", color: C.sub, margin: "lg" }),
+    ...(lines.length ? lines.map((l: any) => ({ type: "box", layout: "horizontal", spacing: "md", margin: "sm", contents: [
+      txt(l.name, { size: "md", color: C.ink, flex: 1, wrap: true }), txt(l.qty, { size: "md", color: l.qty === "金額未填" ? C.gold : C.ink, flex: 0, align: "end" }) ] }))
+      : [txt("沒看到品項，存進去之後要在訂購頁補上", { size: "sm", color: C.gold, margin: "sm", wrap: true })]),
+    ...lines.filter((l: any) => l.guess).map((l: any) => txt(`寫的是「${l.guess}」，當成${l.name}，請確認`, { size: "sm", color: C.gold, margin: "sm", wrap: true })),
+    ...(r.left && r.left.length ? [txt("備註", { size: "xs", weight: "bold", color: C.sub, margin: "lg" }), txt(r.left.join("、"), { size: "md", color: C.ink, margin: "sm", wrap: true })] : []),
+    ...(!r.time ? [txt("沒寫幾點取，存進去之後要補上", { size: "sm", color: C.gold, margin: "md", wrap: true })] : []),
+    ...(!r.market ? [txt("沒寫哪個市場，存進去之後要補上", { size: "sm", color: C.gold, margin: "sm", wrap: true })] : []),
+  ];
+  const card = { type: "flex", altText: `訂單｜${who}　${md}${r.time ? " " + r.time : ""}`, contents: { type: "bubble", size: "mega",
+    header: { type: "box", layout: "horizontal", backgroundColor: C.soy, paddingAll: "18px", spacing: "md", contents: [
+      txt("訂單", { size: "xxl", weight: "bold", color: "#FFFFFF", flex: 0, gravity: "bottom" }),
+      { type: "box", layout: "vertical", flex: 1, spacing: "sm", justifyContent: "flex-end", contents: [
+        ...(r.market ? [{ type: "box", layout: "horizontal", contents: [{ type: "filler" }, { type: "box", layout: "vertical", flex: 0, cornerRadius: "8px", backgroundColor: "#FFFFFF",
+          paddingStart: "10px", paddingEnd: "10px", paddingTop: "3px", paddingBottom: "3px", contents: [txt(r.market, { size: "lg", weight: "bold", color: C.soy })] }] }] : []),
+        txt(`${md}${r.time ? " " + r.time : ""} 取`, { size: "sm", weight: "bold", color: "#FFFFFF", align: "end" }),
+      ] },
+    ] },
+    body: { type: "box", layout: "vertical", paddingAll: "18px", paddingTop: "8px", contents: body },
+    footer: { type: "box", layout: "vertical", paddingAll: "16px", paddingTop: "0px", spacing: "sm", contents: [
+      txt("按確認就會自動存進訂單", { size: "xs", color: C.sub, align: "center" }),
+      { type: "button", style: "primary", color: C.soy, height: "sm", action: { type: "postback", label: "確認有這筆訂單", data: "ok:" + id } },
+    ] },
+  } };
+  return { card, slot };
+}
+/* 訊息有日期＋電話：回一張訂單小卡（回覆不扣額度）；拆不出來就不回，平常聊天不會被打擾 */
+async function autoOrder(cfg: Cfg, ev: any, text: string) {
+  if (!hasPhone(text) || text.length > 1000) return;
+  const P = await getParser(); if (!P) return;
+  const at = Number(ev.timestamp) || Date.now();
+  const r = P.parse(text, P.MENU, new Date(at + 8 * 3600 * 1000));   // 這裡的時區是 UTC：加 8 小時＝台灣的日期
+  if (!r.date || !r.phone) return;
+  if (!cfg.pub) { await say(cfg.token, ev.replyToken, "看到一筆訂單，但還沒辦法幫忙存：請先在訂購頁輸入店家密碼打開一次，之後有日期和電話的訊息，我就會做成小卡。"); return; }
+  const id = [...crypto.getRandomValues(new Uint8Array(9))].map(x => x.toString(16).padStart(2, "0")).join("");
+  const { card, slot } = buildOrderCard(P, r, id);
+  const enc = await sealFor(cfg.pub, { text, at, v: 1 });
+  const { error } = await db.from("line_inbox").insert({ id, at, st: "wait", enc, slot });
+  if (error) { console.error("inbox", error); return; }
+  const res = await line(cfg.token, "/message/reply", { method: "POST", body: JSON.stringify({ replyToken: ev.replyToken, messages: [card] }) });
+  if (!res.ok) { console.error("order card", res.status, res.j); await db.from("line_inbox").delete().eq("id", id); }
+}
+/* 按了「確認有這筆訂單」：同一筆只算一次 */
+async function confirmOrder(cfg: Cfg, ev: any, id: string) {
+  const uid = ev.source?.userId || "", gid = ev.source?.groupId || "";
+  let by = "";
+  if (uid && gid) { const m = await line(cfg.token, `/group/${gid}/member/${uid}`); if (m.ok) by = String(m.j.displayName || "").slice(0, 20); }
+  const { data } = await db.from("line_inbox").update({ st: "ok", by, ok_at: new Date().toISOString() }).eq("id", id).eq("st", "wait").select("slot");
+  if (!data || !data.length) {
+    const { data: old } = await db.from("line_inbox").select("by,st").eq("id", id).maybeSingle();
+    await say(cfg.token, ev.replyToken, old ? `這筆已經確認過了${old.by ? `（${old.by}確認）` : ""}，不會重複存。` : "這張小卡已經處理過或過期了。要的話請在訂購頁新增。");
+    return;
+  }
+  const s = data[0].slot || {};
+  // 每天提醒也加上這筆（網頁打開後會用正式訂單重新整理）
+  try {
+    if (s.day && isDate(s.day)) {
+      const c = await getCfg(); let daily: Record<string, Slot[]> = {}; try { daily = JSON.parse(c.daily || "{}"); } catch { /* 沒有 */ }
+      (daily[s.day] = daily[s.day] || []).push({ t: s.t || "", m: s.m || "", w: s.w ? 1 : 0, d: s.d ? 1 : 0, n: s.n || "", i: s.i || "" });
+      await setCfg({ daily: JSON.stringify(daily) });
+    }
+  } catch (e) { console.error("daily add", e); }
+  await say(cfg.token, ev.replyToken, `✅ 已確認，訂單存好了：${s.n || "客人"}・${s.md || ""}${s.t ? " " + s.t : ""}${by ? `（${by}確認）` : ""}`);
+}
+
 /* ===== LINE 打來的 Webhook ===== */
 async function webhook(body: string, sig: string) {
   const cfg = await getCfg();
@@ -129,7 +250,11 @@ async function webhook(body: string, sig: string) {
         const a = await ask(cfg, code);
         if (a) { const r = await line(cfg.token, "/message/reply", { method: "POST", body: JSON.stringify({ replyToken: ev.replyToken, messages: a.msgs }) });
           if (r.ok) await dropOut(a.n); else console.error("reply", r.status, r.j); }
+        else await autoOrder(cfg, ev, String(ev.message.text || ""));
       }
+    } else if (ev.type === "postback" && gid && gid === cfg.group) {
+      const m = String(ev.postback?.data || "").match(/^ok:([0-9a-f]{18})$/);
+      if (m) await confirmOrder(cfg, ev, m[1]);
     } else if (ev.type === "leave" && gid && gid === cfg.group) {
       await delCfg(["group", "group_name"]);
     }
@@ -212,6 +337,11 @@ async function retryKey(s: string) {
 }
 async function tick(force = false, dry = false, probe: unknown = null, early = false) {
   const cfg = await getCfg();
+  // 沒人按確認的小卡放 3 天；確認了但一直沒有網頁來拿的放 30 天
+  if (!dry) { try {
+    await db.from("line_inbox").delete().eq("st", "wait").lt("created_at", new Date(Date.now() - 3 * 86400000).toISOString());
+    await db.from("line_inbox").delete().lt("created_at", new Date(Date.now() - 30 * 86400000).toISOString());
+  } catch (e) { console.error("inbox clean", e); } }
   const { ymd, wd, md } = twToday();
   if (!cfg.token || !cfg.group) return { sent: false, why: "no group" };
   const lastKey = early ? "tick_early_last" : "tick_last";
@@ -247,6 +377,14 @@ Deno.serve(async (req) => {
   if (b.op === "tick") {   // 資料庫排程：key 只存在資料庫裡
     const k = (await getCfg()).cron_key;
     if (!k || typeof b.key !== "string" || b.key !== k) return json(req, { error: "no" }, 403);
+    if (b.parse && typeof b.parse === "string") {   // 測試：只拆字，不存、不傳
+      const P = await getParser(); if (!P) return json(req, { error: "no parser" }, 500);
+      const r = P.parse(b.parse, P.MENU, new Date(Date.now() + 8 * 3600 * 1000));
+      const cfg = await getCfg();
+      const ok = r.date && r.phone ? buildOrderCard(P, r, "0".repeat(18)) : null;
+      const v = ok && cfg.token ? await line(cfg.token, "/message/validate/reply", { method: "POST", body: JSON.stringify({ messages: [ok.card] }) }) : null;
+      return json(req, { trigger: !!ok, slot: ok?.slot, card: ok?.card, valid: v ? (v.ok || v.j) : null, phone: hasPhone(b.parse) });
+    }
     try { return json(req, await tick(!!b.force, !!b.dry, b.dry ? b.probe : null, b.slot === "early")); } catch (e) { console.error(e); return json(req, { error: "server" }, 500); }
   }
   if (!isTag(b.tag)) return json(req, { error: "bad tag" }, 400);
@@ -287,6 +425,21 @@ Deno.serve(async (req) => {
       const today = twToday().ymd;
       for (const k of Object.keys(d)) if (k < today) delete d[k];
       await setCfg({ daily: JSON.stringify(d) });
+      return json(req, { ok: true });
+    }
+
+    if (b.op === "inbox") {   // 網頁打開時：交公鑰（新訊息用它加密），拿走已確認的訂單
+      const pub = b.pub, kid = typeof b.kid === "string" ? b.kid.slice(0, 64) : "";
+      if (pub && typeof pub === "object" && pub.kty === "RSA" && typeof pub.n === "string" && pub.n.length < 1200 && typeof pub.e === "string" && pub.e.length < 16) {
+        const v = JSON.stringify({ jwk: { kty: "RSA", n: pub.n, e: pub.e, alg: "RSA-OAEP-256", ext: true }, kid });
+        if (cfg.pub !== v) await setCfg({ pub: v });
+      }
+      const { data } = await db.from("line_inbox").select("id,at,enc,by").eq("st", "ok").order("at").limit(50);
+      return json(req, { items: data || [] });
+    }
+    if (b.op === "inboxdone") {
+      const ids = Array.isArray(b.ids) ? b.ids.filter((x: unknown) => typeof x === "string" && /^[0-9a-f]{18}$/.test(x)).slice(0, 50) : [];
+      if (ids.length) await db.from("line_inbox").delete().in("id", ids).eq("st", "ok");
       return json(req, { ok: true });
     }
 

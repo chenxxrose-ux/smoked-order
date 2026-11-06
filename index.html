@@ -729,7 +729,9 @@ function render(){
 /* 數量顯示：＋－ 的是文字，滷味的是輸入框（0 顯示空白） */
 function setQ(st, v){ const q = st.querySelector(".q"); if (q.tagName === "INPUT") q.value = v ? v : ""; else q.textContent = v; }
 
-function getLines(){
+/* S：要算哪一份（預設是畫面上的表單；LINE 群組的訂單用另外一份） */
+function getLines(S = { qty, amounts, want, pcPrice }){
+  const { qty, amounts, want, pcPrice } = S;
   const lines = [];
   MENU.forEach((sec, si) => byLen(sec.items).forEach(([it, ii]) => {
     if (it.type === "money") {
@@ -1126,6 +1128,7 @@ const Vault = {
     this.orders = list.sort((a, b) => b.id - a.id);
     this.trash = trash.sort((a, b) => b.del - a.del);
     lineDailySoon();
+    lineInboxSoon();
   },
   lock(forget){ this.priv = null; this.keys = null; this.orders = null; this.trash = null; this.unlockedAt = 0; if (forget) KV.del(KEYS_KV); },
   /* 取出原始私鑰（更換密碼時把舊金鑰放進新的金鑰圈） */
@@ -1604,6 +1607,57 @@ async function lineDailySend(){
     await LineBot.call({ op: "daily", daily });
     try { localStorage.setItem("lineDailySig", memo + sig); } catch (e) {}
   } catch (e) {}   // 還沒連 LINE 或暫時連不上：下次有變動再傳
+}
+
+/* ===== LINE 群組自動接單：群組裡按了「確認有這筆訂單」的，打開網頁時存成正式訂單 =====
+   機器人收到訊息就用這家店的公鑰加密，只有輸入過店家密碼的手機解得開；順便把公鑰交給機器人（換密碼後會更新） */
+var lineInboxTimer = null, lineInboxAt = 0, lineInboxBusy = false;
+function lineInboxSoon(){ clearTimeout(lineInboxTimer); lineInboxTimer = setTimeout(lineInboxPull, Date.now() - lineInboxAt > 60000 ? 1500 : 60000); }
+function orderFromText(text, at, extra){
+  const r = parseOrderText(text, MENU, new Date(at));
+  const S = { qty: {}, amounts: {}, want: {}, pcPrice: {} };
+  for (const l of r.items) {
+    const it = MENU[l.si].items[l.ii];
+    if (l.amount !== undefined) { const k = `${l.si}-${l.ii}-amt`; S.want[k] = true; if (l.amount) S.amounts[k] = l.amount; }
+    else { const k = it.type === "piece" ? `${l.si}-${l.ii}-pc` : `${l.si}-${l.ii}-${l.oi}`; S.qty[k] = (S.qty[k] || 0) + l.q; }
+  }
+  const lines = getLines(S);
+  const surname = cleanSurname(r.surname || ""), t = r.title || "", phone = r.phone || "";
+  const mk = r.market || "", [h0, h1] = HOURS[mk] || [6, 20], hh = r.time ? Number(r.time.slice(0, 2)) + Number(r.time.slice(3)) / 60 : 0;
+  const memo = [r.left.join("、"), lines.length ? "" : "（沒看到品項，請補上）"].filter(Boolean).join(" ");
+  const o = { id: at, odate: ymd(new Date(at)), market: mk, walk: false, surname, title: t,
+    name: surname || phone ? (surname || phone.slice(-3)) + t : "客人" + (t ? `（${t}）` : ""), phone,
+    date: r.date ? ymd(r.date) : "", ptime: r.time && hh >= h0 && hh <= h1 ? r.time : "", addr: mk === "外送" ? (r.addr || "") : "",
+    memo, prep: { cut: "要切", pepper: "要", oil: "要", sauce: "要", ...(r.prep || {}) }, pay: r.pay || "none", deposit: r.pay === "deposit" ? (Number(r.deposit) || 0) : 0,
+    items: lines.map(l => ({ cat: l.cat, nm: l.nm, sp: l.sp || "", kind: l.kind, q: l.q, short: l.short, item: l.item, sub: l.sub, weigh: !!l.weigh, est: l.est || null })), ...extra };
+  o.total = calcTotal(o.items);
+  return o;
+}
+async function lineInboxPull(){
+  if (lineInboxBusy || !Vault.orders || !Vault.keys || !Sync.on() || !navigator.onLine) return;
+  lineInboxBusy = true; lineInboxAt = Date.now();
+  try {
+    const m = Vault.meta(); if (!m) return;
+    const res = await LineBot.call({ op: "inbox", pub: m.pub, kid: await kidOf(m) });
+    const items = Array.isArray(res.items) ? res.items : [];
+    if (!items.length) return;
+    const done = [], added = [];
+    for (const x of items) {
+      if (Vault.orders.some(o => o.lineId === x.id)) { done.push(x.id); continue; }   // 別支手機已經存過
+      let d; try { d = await Vault.open(x.enc); } catch (e) { continue; }            // 解不開（換過密碼前的）：留著
+      if (!d || typeof d.text !== "string") { done.push(x.id); continue; }
+      let id = Number(x.at) || Date.now();
+      while (Vault.orders.some(o => o.id === id)) id++;
+      const o = orderFromText(d.text, id, { lineId: x.id, lineBy: String(x.by || "").slice(0, 20) });
+      try { await Vault.put(o); done.push(x.id); added.push(o); } catch (e) {}
+    }
+    if (done.length) { try { await LineBot.call({ op: "inboxdone", ids: done }); } catch (e) {} }
+    if (added.length) {
+      toast(added.length === 1 ? `LINE 群組確認的訂單已存進來：${added[0].name}・${added[0].date ? fmtDate(added[0].date) : ""}` : `LINE 群組確認的 ${added.length} 筆訂單已存進來`);
+      refreshOrderView();
+    }
+  } catch (e) {}   // 還沒連 LINE、網路不穩：下次打開再拿
+  finally { lineInboxBusy = false; }
 }
 
 function refreshOrderView(){
