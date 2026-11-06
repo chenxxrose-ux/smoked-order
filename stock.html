@@ -334,6 +334,26 @@
   .card > .grp.g1:first-child{border-top:none}
   .qbox .unit{min-width:20px;text-align:left}
   .seg.lvl{width:154px} .seg.lvl.l3{width:180px}
+  /* 排序：上次剩最多的在上面／原本順序 */
+  .sortbar{display:flex;align-items:center;gap:8px;margin:14px 4px 0;font-size:13px;color:var(--sub)}
+  .sortbar .seg{flex:1}
+  .sortbar .seg button{min-height:34px;font-size:13px}
+  .sort-hint{margin:6px 4px 0;font-size:13px;color:var(--sub)}
+  /* 上次剩多少（品名下面一行小字） */
+  .it.one .yest{grid-column:1/-1;font-size:12px;line-height:1.3;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it.one .yest.hi{color:#8A5A00;font-weight:600}
+  /* 明天不用：每個品項右邊一格 */
+  .skip{flex:none;width:44px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0;background:none;border:0;
+    font-size:11px;line-height:1.2;color:var(--sub);white-space:nowrap;letter-spacing:-.02em}
+  .skip .box{width:26px;height:26px;border-radius:8px;border:2px solid #CFC9C2;background:var(--card);display:grid;place-items:center}
+  .skip svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+  .skip[aria-pressed="true"]{color:var(--soy);font-weight:600}
+  .skip[aria-pressed="true"] .box{background:var(--soy);border-color:var(--soy)}
+  .skip[aria-pressed="true"] svg{opacity:1}
+  .skip-ph{flex:none;width:44px}
+  .off .it-name{color:#B4AFA9;text-decoration:line-through}
+  .off input,.off .seg.lvl{opacity:.45}
+  .skipline{max-width:600px;margin:0 auto 6px;font-size:13px;color:var(--soy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   .mk-warn{margin:10px 0 0;padding:10px 14px;border-radius:12px;background:#FBF1DE;color:#8A5A00;font-size:15px;font-weight:500;text-align:center}
   .cf-warn{text-align:left;font-weight:400;background:#FCE8E6;color:#8C1D18}
@@ -390,7 +410,7 @@
   <div class="actions"><button type="button" class="btn ghost" id="clearDay">重新填寫</button></div>
 </main>
 
-<div class="bar"><div class="bar-in">
+<div class="bar"><div class="skipline" id="skipLine" hidden></div><div class="bar-in">
   <div class="sum"><span class="sum-l"><span class="mk-tag" id="mkTag">未選市場</span>・<span id="saveState">已自動儲存</span></span><b><span id="cnt">0</span> 項有剩<small id="bring"></small></b></div>
   <div class="bar-btns"><button type="button" class="btn ghost" id="shareBtn">分享</button><button type="button" class="btn line" id="lineBtn">傳到群組</button></div>
 </div></div>
@@ -445,10 +465,62 @@ const CAT_LABEL = { "備品": "要帶的備品" };   // 備品是要帶去攤位
 const catLabel = c => CAT_LABEL[c] || c;
 
 /* ===== 畫面 ===== */
+/* ===== 排序：照「上次剩多少」，剩越多越上面（備品不排）=====
+   上次＝同一個市場、往前找最近一天有記的（最多 14 天）；送出後頁面清空，就看送出的那一份 */
+const SKIP = "|明天不用";
+const skipKey = r => `${r.cat}|${r.grp}${SKIP}`;
+const isSkipKey = k => String(k).endsWith(SKIP);
+let sortMode = (() => { try { return localStorage.getItem("stockSort") === "o" ? "o" : "y"; } catch (e) { return "y"; } })();
+function groupParts(v){
+  const g = new Map();
+  ROWS.forEach(r => {
+    const x = v[r.key]; if (!x) return;
+    const k = r.cat + "|" + r.grp;
+    const o = g.get(k) || { parts: [], score: 0, lv: 0 };
+    o.parts.push(r.kind === "lvl" ? ((r.levels.find(z => z[0] === x) || [])[1] || x) : r.cnt ? `${x} ${r.unit}` : r.multi ? specCount(r.spec, x) : `${x}${r.unit ? " " + r.unit : ""}`);
+    o.score += r.kind === "lvl" ? (x >= 2 ? 50 : 5) : x;   // 很多＝50、一點＝5，跟數量一起比
+    if (r.kind === "lvl") o.lv = x;
+    g.set(k, o);
+  });
+  return g;
+}
+function prevStock(){
+  if (!mk) return null;
+  const a = all(), [y, m, d] = date.split("-").map(Number);
+  for (let n = 1; n <= 14; n++) {
+    const day = ymd(new Date(y, m - 1, d - n)), r = a[docId(day, mk)];
+    if (!r || r.del) continue;
+    const has = v => v && Object.keys(v).some(k => !isSkipKey(k) && v[k] > 0);
+    const v = has(r.v) ? r.v : r.sends && r.sends[0] && has(r.sends[0].v) ? r.sends[0].v : null;
+    if (v) return { day, n, g: groupParts(v) };
+  }
+  return null;
+}
+let shownKey = "", prev = null;
 function render(){
-  let html = "", cat = "", grp = null;
+  shownKey = `${date}|${mk}|${sortMode}`;
+  prev = prevStock();
+  // 照上次剩的量排（同一品項的規格一起移動）；沒剩的照原本順序
+  let order = ROWS.map((r, i) => i);
+  if (sortMode === "y" && prev) {
+    const sc = i => { const r = ROWS[i]; if (r.bring) return -1; const o = prev.g.get(r.cat + "|" + r.grp); return o ? o.score : 0; };
+    const catAt = {}; ROWS.forEach((r, i) => { if (!(r.cat in catAt)) catAt[r.cat] = i; });
+    const grpAt = {}; ROWS.forEach((r, i) => { const k = r.cat + "|" + r.grp; if (!(k in grpAt)) grpAt[k] = i; });
+    order.sort((a, b) => {
+      const A = ROWS[a], B = ROWS[b];
+      if (A.cat !== B.cat) return catAt[A.cat] - catAt[B.cat];
+      return sc(b) - sc(a) || grpAt[A.cat + "|" + A.grp] - grpAt[B.cat + "|" + B.grp] || a - b;
+    });
+  }
+  const pDay = prev ? (prev.n === 1 ? "昨天" : `${Number(prev.day.slice(5, 7))}/${Number(prev.day.slice(8))}`) : "";
+  let html = `<div class="sortbar" data-card="排序"><span>排序</span><div class="seg" role="group" aria-label="排序方式">
+      <button type="button" data-sort="y" class="${sortMode === "y" ? "on" : ""}">上次剩多的在上面</button>
+      <button type="button" data-sort="o" class="${sortMode === "o" ? "on" : ""}">原本順序</button></div></div>
+    <p class="sort-hint" data-card="排序">${!mk ? "選好市場後，會照上次剩的量排序" : prev ? `照${pDay}（${MKT[mk]}）剩的量排序。勾「明天不用」的品項，傳到群組時會另外列出來` : "前 14 天沒有這個市場的紀錄，先照原本順序"}</p>`;
+  let cat = "", grp = null;
   const close = () => { if (grp) { html += "</div>"; grp = null; } };
-  ROWS.forEach((r, i) => {
+  order.forEach(i => {
+    const r = ROWS[i];
     if (r.cat !== cat) {
       close(); if (cat) html += "</section>"; cat = r.cat;
       const shut = folded().includes(cat);
@@ -458,8 +530,14 @@ function render(){
         <section class="card${shut ? " folded" : ""}" data-card="${escapeHtml(cat)}">`;
     }
     const first = r.multi && grp !== r.grp;
-    if (r.multi) { if (first) { close(); grp = r.grp; html += `<div class="grp g1">`; } }
+    const gk = escapeHtml(skipKey(r));
+    if (r.multi) { if (first) { close(); grp = r.grp; html += `<div class="grp g1" data-gk="${gk}">`; } }
     else close();
+    const head = !r.multi || first;   // 這個品項的第一列：放上次剩多少、明天不用
+    const p = head && !r.bring && prev ? prev.g.get(r.cat + "|" + r.grp) : null;
+    const yest = p ? `<span class="yest${p.score >= 10 ? " hi" : ""}">${pDay}剩 ${escapeHtml(p.parts.join("＋"))}</span>` : "";   // 上次沒剩就不寫，畫面比較乾淨
+    const skipBtn = r.bring ? "" : head ? `<button type="button" class="skip" data-skip="${gk}" aria-pressed="false" aria-label="${escapeHtml(r.grp)}明天不用">
+        <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>明天不用</button>` : `<span class="skip-ph"></span>`;
     const ctrl = r.kind === "lvl"
       ? `<div class="seg small lvl${r.levels.length > 2 ? " l3" : ""}" id="b${i}">${r.levels.map(([v, t]) => `<button type="button" data-i="${i}" data-lv="${v}">${t}</button>`).join("")}</div>`
       : r.kind === "w"
@@ -468,8 +546,8 @@ function render(){
           aria-label="${escapeHtml(r.name + (r.spec || ""))}${r.bring ? "要帶幾" : "剩幾"}${r.unit}"><span class="unit">${r.unit}</span></div>`;
     // 一行：品名｜份量（固定兩欄，和訂購頁一樣對齊）
     const spec = r.bring ? `要帶幾${r.unit}` : r.multi ? (r.cnt ? "幾" : "") + r.spec : r.kind === "w" ? "秤重" : r.kind === "lvl" ? "" : (r.spec || "").replace(/（.*?）/, "");
-    html += `<div class="it one${r.multi && !first ? " sub" : ""}"><div class="it-main"><span class="it-name">${r.multi && !first ? "" : escapeHtml(r.name)}</span>
-      <span class="spec-s">${escapeHtml(spec)}</span></div>${ctrl}</div>`;
+    html += `<div class="it one${r.multi && !first ? " sub" : ""}"${!r.multi && !r.bring ? ` data-gk="${gk}"` : ""}><div class="it-main"><span class="it-name">${r.multi && !first ? "" : escapeHtml(r.name)}</span>
+      <span class="spec-s">${escapeHtml(spec)}</span>${yest}</div>${ctrl}${skipBtn}</div>`;
   });
   close(); html += "</section>";
   $("list").innerHTML = html;
@@ -513,7 +591,7 @@ async function needMarket(e){
   return false;
 }
 ["pointerdown", "focusin"].forEach(ev => $("list").addEventListener(ev, e => {
-  if (!mk && e.target.closest("input,button[data-lv]")) needMarket(e);
+  if (!mk && e.target.closest("input,button[data-lv],button[data-skip]")) needMarket(e);
 }, true));
 $("note").addEventListener("focusin", e => { if (!mk) needMarket(e); }, true);
 
@@ -548,6 +626,7 @@ function editRec(a, id){
 }
 
 function fill(){
+  if (shownKey !== `${date}|${mk}|${sortMode}`) render();
   const rec = cur();
   ROWS.forEach((r, i) => {
     const v = rec.v[r.key] || 0, inp = document.querySelector(`input[data-i="${i}"]`);
@@ -556,6 +635,7 @@ function fill(){
     $("b" + i).classList.toggle("on", v > 0);
   });
   if (document.activeElement !== $("note")) $("note").value = rec.note || "";
+  paintSkips(rec);
   paintCounts(rec);
   const isToday = date === ymd(new Date());
   $("dLabel").innerHTML = `${fmtDate(date)}<small>${isToday ? "今天" : ""}${rec.upd ? (isToday ? "・" : "") + "最後更新 " + hm(rec.upd) : ""}</small>`;
@@ -567,8 +647,22 @@ function fill(){
   paintConflict(mk ? all()[docId(date, mk)] : null);
 }
 /* 兩支手機同時改了同一個品項：顯示兩邊的數字，讓使用者選 */
-const keyName = k => { const r = ROWS.find(x => x.key === k); return r ? r.grp + (r.multi ? "（" + r.spec + "）" : "") : k.split("|")[0]; };
-const valText = (k, v) => { const r = ROWS.find(x => x.key === k); if (!v) return "沒有"; if (r && r.kind === "lvl") return (r.levels.find(x => x[0] === v) || [])[1] || String(v); return String(v) + (r && r.unit ? " " + r.unit : ""); };
+/* 明天不用：存在這天的紀錄裡（key＝「類別|品名|明天不用」），兩支手機會同步 */
+function skipNames(rec){
+  return ROWS.filter((r, i) => !r.bring && (i === 0 || ROWS[i - 1].grp !== r.grp || ROWS[i - 1].cat !== r.cat) && rec.v[skipKey(r)]).map(r => r.grp);
+}
+function paintSkips(rec){
+  document.querySelectorAll("#list [data-skip]").forEach(b => b.setAttribute("aria-pressed", !!rec.v[b.dataset.skip]));
+  document.querySelectorAll("#list [data-gk]").forEach(el => {
+    const on = !!rec.v[el.dataset.gk];
+    el.classList.toggle("off", on);
+  });
+  const names = skipNames(rec);
+  $("skipLine").hidden = !names.length;
+  $("skipLine").textContent = names.length ? `明天不用：${names.join("、")}（會一起傳到群組）` : "";
+}
+const keyName = k => { if (isSkipKey(k)) return k.split("|")[1] || k; const r = ROWS.find(x => x.key === k); return r ? r.grp + (r.multi ? "（" + r.spec + "）" : "") : k.split("|")[0]; };
+const valText = (k, v) => { const r = ROWS.find(x => x.key === k); if (isSkipKey(k)) return v ? "明天不用" : "要"; if (!v) return "沒有"; if (r && r.kind === "lvl") return (r.levels.find(x => x[0] === v) || [])[1] || String(v); return String(v) + (r && r.unit ? " " + r.unit : ""); };
 function paintConflict(rec){
   const box = $("cfWarn"), cf = rec && !rec.del && rec.cf;
   if (!cf || (!(cf.items || []).length && !cf.note)) { box.hidden = true; box.innerHTML = ""; return; }
@@ -612,6 +706,18 @@ function setVal(i, v){
   clearTimeout(saveTimer); saveTimer = setTimeout(() => Sync.run(), 800);
 }
 $("list").addEventListener("click", e => {
+  const so = e.target.closest("button[data-sort]");
+  if (so) { sortMode = so.dataset.sort; try { localStorage.setItem("stockSort", sortMode); } catch (x) {} fill(); return; }
+  const sk = e.target.closest("button[data-skip]");
+  if (sk) {
+    if (!mk) return;
+    const a = all(), rec = editRec(a, docId(date, mk)), k = sk.dataset.skip;
+    if (rec.v[k]) delete rec.v[k]; else rec.v[k] = 1;
+    rec.upd = Date.now(); saveAll(a);
+    $("saveState").textContent = "已自動儲存";
+    clearTimeout(saveTimer); saveTimer = setTimeout(() => Sync.run(), 800);
+    fill(); return;
+  }
   const lv = e.target.closest("button[data-lv]");
   if (lv) { const i = Number(lv.dataset.i), n = Number(lv.dataset.lv); setVal(i, cur().v[ROWS[i].key] === n ? 0 : n); fill(); return; }   // 再按一次取消
   const b = e.target.closest("button[data-d]"); if (!b) return;
@@ -654,12 +760,14 @@ function stockText(rec = cur(), d0 = date, m0 = mk){
   // 標題照內容寫：只有備品就是【要帶】，不要和剩貨搞混
   const hasStock = groups.some(g => g.cat !== "備品"), hasBring = groups.some(g => g.cat === "備品");
   t = `▍${hasStock && hasBring ? "剩貨・要帶" : hasBring ? "要帶" : "剩貨"}　${d} ${MKT[m0]}\n`;
-  if (!groups.length) t += "\n（沒有剩貨紀錄）";
+  if (!groups.length && !skipNames(rec).length) t += "\n（沒有剩貨紀錄）";
   groups.forEach(g => {
     const bring = g.cat === "備品";
     if (g.cat !== cat) { cat = g.cat; t += "\n" + (bring && !hasStock ? "" : shareHead(cat) + "\n"); }
     t += `${bring ? "☐ " : "・"}${g.grp} ${g.parts.join("＋")}\n`;
   });
+  const skips = skipNames(rec);
+  if (skips.length) t += `\n〔明天不用〕\n${skips.join("、")}\n`;
   if (rec.note) t += `\n※ ${rec.note}`;
   return t.trim();
 }
@@ -685,7 +793,9 @@ function stockCard(rec = cur(), d0 = date, m0 = mk){
     if (stock.length) { body.push(K.sep()); body.push(K.label("要帶（出門前帶齊）", C.blue)); }
     bring.forEach(g => body.push(K.row("☐  " + g.grp, g.parts.join("＋"), { size: "lg", rw: true, margin: "md" })));
   }
-  if (!groups.length) body.push(K.t("（沒有剩貨紀錄）", { color: C.sub, margin: "md" }));
+  const skips = skipNames(rec);
+  if (!groups.length && !skips.length) body.push(K.t("（沒有剩貨紀錄）", { color: C.sub, margin: "md" }));
+  if (skips.length) { if (groups.length) body.push(K.sep()); body.push(K.label("明天不用", C.soy)); body.push(K.t(skips.join("、"), { size: "md", weight: "bold", color: C.soy, margin: "sm", wrap: true })); }
   if (rec.note) { body.push(K.sep()); body.push(K.t("※ " + rec.note, { size: "sm", margin: "md" })); }
   const onlyBring = bring.length && !stock.length;
   const band = K.mband(m0, onlyBring ? "要帶" : stock.length && bring.length ? "剩貨＋要帶" : "剩貨", d);
