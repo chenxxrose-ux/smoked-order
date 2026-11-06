@@ -542,9 +542,9 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg"><div class="dlg-box" id="dlgBox" role="dialog" aria-modal="true"></div></div>
 
-<script src="shared.js?v=8"></script>
+<script src="shared.js?v=9"></script>
 <script src="core.js?v=12"></script>
-<script src="parse.js?v=4"></script>
+<script src="parse.js?v=5"></script>
 <script>
 /* core.js 是訂購頁和剩貨頁共用的程式，沒有載入就停止，避免動到資料 */
 if (typeof MENU === "undefined" || typeof CORE_VERSION === "undefined" || CORE_VERSION < 5) {
@@ -750,10 +750,10 @@ function getLines(){
         const k = `${si}-${ii}-${oi}`, q = qty[k], p = prices[k];
         const lab = it.opts.length > 1 ? o.label.replace(/\s*一份/, "") : "";
         if (q > 0 && it.weigh) lines.push({ cat: sec.cat, nm: it.name, sp: o.label, kind: "qty", q, weigh: true, est: p ? p * q : null,
-          short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${p ? "　約$" + p : ""}`,
-          text: `【${sec.cat}】${it.name}（${o.label}）× ${q}${p ? "　約$" + p : ""}`, sub: null });
-        else if (q > 0) lines.push({ cat: sec.cat, nm: it.name, sp: o.label, kind: "qty", q, short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${p ? "　單價$" + p : ""}`,
-          text: `【${sec.cat}】${it.name}（${o.label}）× ${q}${p ? "　@$" + p : ""}`, sub: p ? p * q : null });
+          short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${it.unit || ""}${p ? "　約$" + p : ""}`,
+          text: `【${sec.cat}】${it.name}（${o.label}）× ${q}${it.unit || ""}${p ? "　約$" + p : ""}`, sub: null });
+        else if (q > 0) lines.push({ cat: sec.cat, nm: it.name, sp: o.label, kind: "qty", q, short: `${it.name}${lab}×${q}${it.unit || ""}`, item: `${it.name}（${o.label}）× ${q}${it.unit || ""}${p ? "　單價$" + p : ""}`,
+          text: `【${sec.cat}】${it.name}（${o.label}）× ${q}${it.unit || ""}${p ? "　@$" + p : ""}`, sub: p ? p * q : null });
       });
     }
   }));

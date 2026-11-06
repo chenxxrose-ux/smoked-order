@@ -12,6 +12,7 @@
     鵪鶉蛋: "鳥蛋", 米糕: "米血", 米血糕: "米血", 鴨翅膀: "鴨翅", 鴨掌: "鴨腳", 雞母: "母雞", 雞公: "公雞",
     鴨真: "鴨胗", 鴨針: "鴨胗", 鴨診: "鴨胗", 米雪: "米血", 魯蛋: "滷蛋", 百葉: "百頁豆腐", 天婦羅: "甜不辣", 甜布辣: "甜不辣", 黑倫: "黑輪片", 海代: "海帶", 甜不拉: "甜不辣" };
   // 只寫「雞」「鴨」：先當成母雞、鴨肉（店裡雞肉以母雞為主），預覽會用黃字提醒
+  // 只寫「豬皮」沒寫大小：當成小卷（選項第一個就是小卷）
   const GUESS = { 雞: "母雞", 雞肉: "母雞", 鴨: "鴨肉" };
   // 口語的贅字，不用放進備註
   const FILLER = /等一下|等等|然後|還有|再來|另外|麻煩|謝謝|請|幫我|我要|總共|共|以上|就這樣|好了|^要$|^跟$|^和$/g;
@@ -93,6 +94,13 @@
   function parseOrderText(text, MENU, now) {
     now = now || new Date();
     let t = norm(text);
+    // 「紅腸」「白腸」= 紅白腸的紅／白
+    t = t.replace(/紅白腸/g, "\u0001").replace(/紅腸/g, "紅白腸紅").replace(/白腸/g, "紅白腸白").replace(/\u0001/g, "紅白腸");
+    // 「豬皮 大卷」中間有空白：接起來，免得「大卷」被當成別的品項
+    MENU.forEach(sec => sec.items.forEach(it => {
+      const labs = (it.opts || []).map(o => o.label).filter(l => !/^[一半]/.test(l));
+      if (labs.length) t = t.replace(new RegExp(`${it.name}\\s+(${labs.join("|")})`, "g"), it.name + "$1");
+    }));
     const r = { items: [], left: [] };
     const cut = s => { if (s) t = t.replace(s, " "); };
 

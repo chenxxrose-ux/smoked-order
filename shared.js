@@ -47,6 +47,8 @@ const MENU = [
     { name: "雞肝",     opts: [{ label: "一個", price: 0 }] },
     { name: "豬皮",     opts: [{ label: "小卷", price: 0 }, { label: "大卷", price: 0 }] },
     { name: "豬肚",     opts: [{ label: "一顆", price: 0 }, { label: "半顆", price: 0 }] },
+    { name: "紅白腸",   unit: "條", opts: [{ label: "紅", price: 0 }, { label: "白", price: 0 }] },
+    { name: "粉腸",     type: "amount" },               // 要買多少錢
   ]},
 ];
 
