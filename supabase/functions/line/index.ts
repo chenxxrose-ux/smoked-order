@@ -166,6 +166,8 @@ function buildOrderCard(P: Parser, r: any, id: string) {
       txt(l.name, { size: "md", color: C.ink, flex: 1, wrap: true }), txt(l.qty, { size: "md", color: l.qty === "金額未填" ? C.gold : C.ink, flex: 0, align: "end" }) ] }))
       : [txt("沒看到品項，存進去之後要在訂購頁補上", { size: "sm", color: C.gold, margin: "sm", wrap: true })]),
     ...lines.filter((l: any) => l.guess).map((l: any) => txt(`寫的是「${l.guess}」，當成${l.name}，請確認`, { size: "sm", color: C.gold, margin: "sm", wrap: true })),
+    ...(r.pay === "deposit" && r.deposit ? [txt("付款", { size: "xs", weight: "bold", color: C.sub, margin: "lg" }), txt(`訂金 $${r.deposit}`, { size: "md", weight: "bold", color: C.ink, margin: "sm" })]
+      : r.pay === "full" ? [txt("付款", { size: "xs", weight: "bold", color: C.sub, margin: "lg" }), txt("已付清", { size: "md", weight: "bold", color: C.ink, margin: "sm" })] : []),
     ...(r.left && r.left.length ? [txt("備註", { size: "xs", weight: "bold", color: C.sub, margin: "lg" }), txt(r.left.join("、"), { size: "md", color: C.ink, margin: "sm", wrap: true })] : []),
     ...(!r.time ? [txt("沒寫幾點取，存進去之後要補上", { size: "sm", color: C.gold, margin: "md", wrap: true })] : []),
     ...(!r.market ? [txt("沒寫哪個市場，存進去之後要補上", { size: "sm", color: C.gold, margin: "sm", wrap: true })] : []),
@@ -211,7 +213,7 @@ async function confirmOrder(cfg: Cfg, ev: any, id: string) {
   const { data } = await db.from("line_inbox").update({ st: "ok", by, ok_at: new Date().toISOString() }).eq("id", id).eq("st", "wait").select("slot");
   if (!data || !data.length) {
     const { data: old } = await db.from("line_inbox").select("by,st").eq("id", id).maybeSingle();
-    await say(cfg.token, ev.replyToken, old ? `這筆已經確認過了${old.by ? `（${old.by}確認）` : ""}，不會重複存。` : "這張小卡已經處理過或過期了。要的話請在訂購頁新增。");
+    if (!old) await say(cfg.token, ev.replyToken, "這張小卡已經處理過或過期了。要的話請在訂購頁新增。");   // 已經確認過的再按一次：不回話，群組比較乾淨
     return;
   }
   const s = data[0].slot || {};
